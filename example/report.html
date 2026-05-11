@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plumb — coverage report</title>
+<style>
+  :root {
+    --bg:          #0d1117;
+    --bg-panel:    #161b22;
+    --bg-hover:    #1c2128;
+    --bg-selected: #1f2937;
+    --border:      #30363d;
+    --text:        #e6edf3;
+    --text-muted:  #7d8590;
+    --text-dim:    #484f58;
+    --green:       #1a4731;
+    --green-text:  #3fb950;
+    --red:         #4a1e1e;
+    --red-text:    #f85149;
+    --yellow:      #3a2f00;
+    --yellow-text: #d29922;
+    --blue:        #1d4ed8;
+    --badge-bg:    #21262d;
+    --font-mono:   "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+    --font-sans:   -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --radius:      6px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:          #ffffff;
+      --bg-panel:    #f6f8fa;
+      --bg-hover:    #eaeef2;
+      --bg-selected: #dbeafe;
+      --border:      #d0d7de;
+      --text:        #1f2328;
+      --text-muted:  #656d76;
+      --text-dim:    #9198a1;
+      --green:       #dafbe1;
+      --green-text:  #1a7f37;
+      --red:         #ffebe9;
+      --red-text:    #cf222e;
+      --yellow:      #fff8c5;
+      --yellow-text: #9a6700;
+      --badge-bg:    #eaeef2;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  header h1 span.logo {
+    color: var(--green-text);
+    font-family: var(--font-mono);
+  }
+
+  .summary-bar {
+    display: flex;
+    gap: 20px;
+    margin-left: auto;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    line-height: 1;
+  }
+
+  .stat-value.good  { color: var(--green-text); }
+  .stat-value.ok    { color: var(--yellow-text); }
+  .stat-value.bad   { color: var(--red-text); }
+
+  /* ── Main layout ── */
+  .layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── File panel ── */
+  .file-panel {
+    width: 300px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-toolbar {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .search-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 12px;
+    padding: 5px 8px;
+    width: 100%;
+    outline: none;
+  }
+
+  .search-input:focus {
+    border-color: var(--green-text);
+  }
+
+  .sort-row {
+    display: flex;
+    gap: 4px;
+  }
+
+  .sort-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 3px 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .sort-btn.active {
+    background: var(--bg-hover);
+    border-color: var(--green-text);
+    color: var(--green-text);
+  }
+
+  .file-list {
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .file-item {
+    cursor: pointer;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  .file-item:hover    { background: var(--bg-hover); }
+  .file-item.selected { background: var(--bg-selected); }
+
+  .file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .file-pkg {
+    font-size: 9px;
+    color: var(--text-dim);
+    display: block;
+  }
+
+  .pct-pill {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .pct-pill.good   { background: var(--green); color: var(--green-text); }
+  .pct-pill.ok     { background: var(--yellow); color: var(--yellow-text); }
+  .pct-pill.bad    { background: var(--red); color: var(--red-text); }
+
+  /* ── Source panel ── */
+  .source-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .source-header {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .source-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .source-stats {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .source-stats span { font-family: var(--font-mono); }
+  .source-stats .hi  { color: var(--green-text); font-weight: 600; }
+
+  /* func table */
+  .func-table-wrap {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+
+  .func-table-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .func-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+
+  .func-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 2px 8px 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .func-table td {
+    padding: 3px 8px 3px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .func-table tr:last-child td { border-bottom: none; }
+
+  .func-table td.count { color: var(--green-text); font-weight: 600; }
+  .func-table td.count.zero { color: var(--red-text); }
+  .func-table td.lineno { color: var(--text-dim); }
+  .func-table td.name   { color: var(--text); }
+
+  /* source code */
+  .source-scroll {
+    overflow: auto;
+    flex: 1;
+  }
+
+  .source-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .source-table tr { position: relative; }
+
+  .source-table tr.covered   { background: rgba(26,71,49,0.35); }
+  .source-table tr.uncovered { background: rgba(74,30,30,0.45); }
+  .source-table tr.func-badge-row {
+    background: none !important;
+  }
+
+  .source-table tr:hover { filter: brightness(1.15); }
+
+  .lineno {
+    color: var(--text-dim);
+    padding: 0 12px 0 16px;
+    text-align: right;
+    user-select: none;
+    white-space: nowrap;
+    width: 1%;
+    border-right: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .hitcount {
+    color: var(--text-dim);
+    padding: 0 10px;
+    text-align: right;
+    user-select: none;
+    white-space: nowrap;
+    width: 1%;
+    vertical-align: top;
+    font-size: 10px;
+  }
+
+  .hitcount.hit  { color: var(--green-text); }
+  .hitcount.miss { color: var(--red-text); }
+
+  .source-line {
+    padding: 0 16px 0 4px;
+    white-space: pre;
+  }
+
+  /* function call badge injected above func declarations */
+  .func-badge-cell {
+    padding: 4px 4px 2px 4px;
+    font-size: 10px;
+  }
+
+  .func-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--badge-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1px 7px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  .func-badge .fname { color: var(--text-muted); }
+  .func-badge .fcalls { font-weight: 700; }
+  .func-badge .fcalls.hit  { color: var(--green-text); }
+  .func-badge .fcalls.miss { color: var(--red-text); }
+
+  /* syntax colours (simplified) */
+  .kw  { color: #ff7b72; }   /* keyword */
+  .fn  { color: #d2a8ff; }   /* function name */
+  .ty  { color: #79c0ff; }   /* type */
+  .st  { color: #a5d6ff; }   /* string */
+  .cm  { color: #8b949e; font-style: italic; } /* comment */
+  .nu  { color: #f0883e; }   /* number */
+  .pk  { color: #ffa657; }   /* package/field */
+
+  /* empty state */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    gap: 8px;
+  }
+
+  .empty-state p { font-size: 13px; }
+  .empty-state small { font-size: 11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <h1><span class="logo">plumb</span> coverage report</h1>
+  <div class="summary-bar">
+    <div class="stat">
+      <span class="stat-label">Statements</span>
+      <span class="stat-value ok" id="total-stmt">72.4%</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Functions</span>
+      <span class="stat-value ok" id="total-func">68.0%</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Layout ── -->
+<div class="layout">
+
+  <!-- ── File panel ── -->
+  <div class="file-panel">
+    <div class="panel-toolbar">
+      <input class="search-input" id="search" placeholder="Filter files…" oninput="filterFiles()">
+      <div class="sort-row">
+        <button class="sort-btn active" id="sort-pct"  onclick="sortFiles('pct')">Stmt %</button>
+        <button class="sort-btn"        id="sort-func" onclick="sortFiles('func')">Func %</button>
+        <button class="sort-btn"        id="sort-name" onclick="sortFiles('name')">Name</button>
+      </div>
+    </div>
+    <div class="file-list" id="file-list"></div>
+  </div>
+
+  <!-- ── Source panel ── -->
+  <div class="source-panel" id="source-panel">
+    <div class="empty-state" id="empty-state">
+      <p>Select a file to view source</p>
+      <small>72.4% statement coverage · 68.0% function coverage</small>
+    </div>
+    <div id="source-view" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="source-header">
+        <span class="source-title" id="source-title"></span>
+        <div class="source-stats">
+          <span>stmts <span class="hi" id="src-stmt-pct"></span></span>
+          <span>funcs <span class="hi" id="src-func-pct"></span></span>
+        </div>
+      </div>
+      <div class="func-table-wrap">
+        <div class="func-table-title">Functions</div>
+        <table class="func-table">
+          <thead><tr>
+            <th>Name</th><th>Line</th><th>Calls</th>
+          </tr></thead>
+          <tbody id="func-tbody"></tbody>
+        </table>
+      </div>
+      <div class="source-scroll">
+        <table class="source-table" id="source-table"></table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Data ────────────────────────────────────────────────────────────────────
+
+const files = [
+  {
+    pkg: "github.com/z3le/plumb/internal/profile",
+    name: "annotate.go",
+    stmtPct: 91.3,
+    funcPct: 100.0,
+    funcs: [
+      { name: "Annotate",        line: 12,  calls: 47 },
+      { name: "expandBlocks",    line: 38,  calls: 47 },
+      { name: "lineStatus",      line: 72,  calls: 312 },
+    ],
+    lines: [
+      { n:1,  src: `<span class="kw">package</span> <span class="pk">profile</span>`, cov: null },
+      { n:2,  src: ``, cov: null },
+      { n:3,  src: `<span class="kw">import</span> (`, cov: null },
+      { n:4,  src: `\t<span class="st">"sort"</span>`, cov: null },
+      { n:5,  src: `)`, cov: null },
+      { n:6,  src: ``, cov: null },
+      { n:7,  src: `<span class="cm">// LineStatus describes whether a source line is covered.</span>`, cov: null },
+      { n:8,  src: `<span class="kw">type</span> <span class="ty">LineStatus</span> <span class="kw">int</span>`, cov: null },
+      { n:9,  src: ``, cov: null },
+      { n:10, src: `<span class="kw">const</span> (`, cov: null },
+      { n:11, src: `\t<span class="ty">Uncoverable</span> <span class="ty">LineStatus</span> = <span class="kw">iota</span>`, cov: null },
+      { n:12, src: `\t<span class="ty">Covered</span>`, cov: null },
+      { n:13, src: `\t<span class="ty">Uncovered</span>`, cov: null },
+      { n:14, src: `)`, cov: null },
+      { n:15, src: ``, cov: null },
+      { n:16, src: `<span class="cm">// Annotate expands profile blocks into per-line status.</span>`, cov: null, funcBadge: { name: "Annotate", calls: 47 } },
+      { n:17, src: `<span class="kw">func</span> <span class="fn">Annotate</span>(src []<span class="kw">byte</span>, blocks []<span class="ty">Block</span>) []<span class="ty">AnnotatedLine</span> {`, cov: 'covered', count: 47 },
+      { n:18, src: `\tlines := <span class="fn">splitLines</span>(src)`, cov: 'covered', count: 47 },
+      { n:19, src: `\tout := <span class="kw">make</span>([]<span class="ty">AnnotatedLine</span>, <span class="kw">len</span>(lines))`, cov: 'covered', count: 47 },
+      { n:20, src: `\t<span class="kw">for</span> i, line := <span class="kw">range</span> lines {`, cov: 'covered', count: 47 },
+      { n:21, src: `\t\tout[i] = <span class="ty">AnnotatedLine</span>{<span class="ty">Number</span>: i + <span class="nu">1</span>, <span class="ty">Source</span>: line}`, cov: 'covered', count: 47 },
+      { n:22, src: `\t}`, cov: 'covered', count: 47 },
+      { n:23, src: `\t<span class="fn">expandBlocks</span>(&amp;out, blocks)`, cov: 'covered', count: 47 },
+      { n:24, src: `\t<span class="kw">return</span> out`, cov: 'covered', count: 47 },
+      { n:25, src: `}`, cov: null },
+      { n:26, src: ``, cov: null },
+      { n:27, src: `<span class="cm">// expandBlocks sets line status from profile blocks.</span>`, cov: null, funcBadge: { name: "expandBlocks", calls: 47 } },
+      { n:28, src: `<span class="kw">func</span> <span class="fn">expandBlocks</span>(lines *[]<span class="ty">AnnotatedLine</span>, blocks []<span class="ty">Block</span>) {`, cov: 'covered', count: 47 },
+      { n:29, src: `\t<span class="kw">for</span> _, b := <span class="kw">range</span> blocks {`, cov: 'covered', count: 47 },
+      { n:30, src: `\t\t<span class="kw">for</span> ln := b.<span class="ty">StartLine</span>; ln &lt;= b.<span class="ty">EndLine</span>; ln++ {`, cov: 'covered', count: 47 },
+      { n:31, src: `\t\t\tl := &amp;(*lines)[ln-<span class="nu">1</span>]`, cov: 'covered', count: 47 },
+      { n:32, src: `\t\t\t<span class="kw">if</span> b.<span class="ty">Count</span> &gt; <span class="nu">0</span> {`, cov: 'covered', count: 47 },
+      { n:33, src: `\t\t\t\tl.<span class="ty">Status</span> = <span class="ty">Covered</span>`, cov: 'covered', count: 47 },
+      { n:34, src: `\t\t\t\tl.<span class="ty">Count</span> = <span class="fn">max</span>(l.<span class="ty">Count</span>, b.<span class="ty">Count</span>)`, cov: 'covered', count: 47 },
+      { n:35, src: `\t\t\t} <span class="kw">else if</span> l.<span class="ty">Status</span> != <span class="ty">Covered</span> {`, cov: 'covered', count: 47 },
+      { n:36, src: `\t\t\t\tl.<span class="ty">Status</span> = <span class="ty">Uncovered</span>`, cov: 'covered', count: 47 },
+      { n:37, src: `\t\t\t}`, cov: null },
+      { n:38, src: `\t\t}`, cov: null },
+      { n:39, src: `\t}`, cov: null },
+      { n:40, src: `}`, cov: null },
+      { n:41, src: ``, cov: null },
+      { n:42, src: `<span class="cm">// lineStatus returns the effective status for a line number.</span>`, cov: null, funcBadge: { name: "lineStatus", calls: 312 } },
+      { n:43, src: `<span class="kw">func</span> <span class="fn">lineStatus</span>(n <span class="kw">int</span>, blocks []<span class="ty">Block</span>) (<span class="ty">LineStatus</span>, <span class="kw">int</span>) {`, cov: 'covered', count: 312 },
+      { n:44, src: `\t<span class="kw">var</span> best <span class="ty">LineStatus</span> = <span class="ty">Uncoverable</span>`, cov: 'covered', count: 312 },
+      { n:45, src: `\t<span class="kw">var</span> count <span class="kw">int</span>`, cov: 'covered', count: 312 },
+      { n:46, src: `\t<span class="kw">for</span> _, b := <span class="kw">range</span> blocks {`, cov: 'covered', count: 312 },
+      { n:47, src: `\t\t<span class="kw">if</span> b.<span class="ty">StartLine</span> &lt;= n &amp;&amp; n &lt;= b.<span class="ty">EndLine</span> {`, cov: 'covered', count: 312 },
+      { n:48, src: `\t\t\t<span class="kw">if</span> b.<span class="ty">Count</span> &gt; <span class="nu">0</span> {`, cov: 'covered', count: 289 },
+      { n:49, src: `\t\t\t\tbest, count = <span class="ty">Covered</span>, <span class="fn">max</span>(count, b.<span class="ty">Count</span>)`, cov: 'covered', count: 289 },
+      { n:50, src: `\t\t\t} <span class="kw">else if</span> best != <span class="ty">Covered</span> {`, cov: 'covered', count: 23 },
+      { n:51, src: `\t\t\t\tbest = <span class="ty">Uncovered</span>`, cov: 'covered', count: 23 },
+      { n:52, src: `\t\t\t}`, cov: null },
+      { n:53, src: `\t\t}`, cov: null },
+      { n:54, src: `\t}`, cov: null },
+      { n:55, src: `\t<span class="kw">return</span> best, count`, cov: 'covered', count: 312 },
+      { n:56, src: `}`, cov: null },
+    ]
+  },
+  {
+    pkg: "github.com/z3le/plumb/internal/profile",
+    name: "resolve.go",
+    stmtPct: 84.6,
+    funcPct: 75.0,
+    funcs: [
+      { name: "ModuleRoot",   line: 14, calls: 31 },
+      { name: "ResolvePath",  line: 29, calls: 31 },
+      { name: "findGoMod",    line: 52, calls: 31 },
+      { name: "parseModPath", line: 71, calls: 0  },
+    ],
+    lines: [
+      { n:1,  src: `<span class="kw">package</span> <span class="pk">profile</span>`, cov: null },
+      { n:2,  src: ``, cov: null },
+      { n:3,  src: `<span class="kw">import</span> (`, cov: null },
+      { n:4,  src: `\t<span class="st">"os"</span>`, cov: null },
+      { n:5,  src: `\t<span class="st">"path/filepath"</span>`, cov: null },
+      { n:6,  src: `\t<span class="st">"strings"</span>`, cov: null },
+      { n:7,  src: `)`, cov: null },
+      { n:8,  src: ``, cov: null },
+      { n:9,  src: `<span class="cm">// ModuleRoot finds the directory containing go.mod for dir.</span>`, cov: null, funcBadge: { name: "ModuleRoot", calls: 31 } },
+      { n:10, src: `<span class="kw">func</span> <span class="fn">ModuleRoot</span>(dir <span class="kw">string</span>) (<span class="kw">string</span>, <span class="kw">error</span>) {`, cov: 'covered', count: 31 },
+      { n:11, src: `\tpath, err := <span class="fn">findGoMod</span>(dir)`, cov: 'covered', count: 31 },
+      { n:12, src: `\t<span class="kw">if</span> err != <span class="kw">nil</span> {`, cov: 'covered', count: 31 },
+      { n:13, src: `\t\t<span class="kw">return</span> <span class="st">""</span>, err`, cov: 'uncovered', count: 0 },
+      { n:14, src: `\t}`, cov: null },
+      { n:15, src: `\t<span class="kw">return</span> <span class="pk">filepath</span>.<span class="fn">Dir</span>(path), <span class="kw">nil</span>`, cov: 'covered', count: 31 },
+      { n:16, src: `}`, cov: null },
+      { n:17, src: ``, cov: null },
+      { n:18, src: `<span class="cm">// ResolvePath maps an import-path filename to a disk path.</span>`, cov: null, funcBadge: { name: "ResolvePath", calls: 31 } },
+      { n:19, src: `<span class="kw">func</span> <span class="fn">ResolvePath</span>(modRoot, modPath, filename <span class="kw">string</span>) <span class="kw">string</span> {`, cov: 'covered', count: 31 },
+      { n:20, src: `\trel := <span class="pk">strings</span>.<span class="fn">TrimPrefix</span>(filename, modPath+<span class="st">"/"</span>)`, cov: 'covered', count: 31 },
+      { n:21, src: `\t<span class="kw">return</span> <span class="pk">filepath</span>.<span class="fn">Join</span>(modRoot, <span class="pk">filepath</span>.<span class="fn">FromSlash</span>(rel))`, cov: 'covered', count: 31 },
+      { n:22, src: `}`, cov: null },
+      { n:23, src: ``, cov: null },
+      { n:24, src: `<span class="kw">func</span> <span class="fn">findGoMod</span>(dir <span class="kw">string</span>) (<span class="kw">string</span>, <span class="kw">error</span>) {`, cov: 'covered', count: 31, funcBadge: { name: "findGoMod", calls: 31 } },
+      { n:25, src: `\t<span class="kw">for</span> {`, cov: 'covered', count: 31 },
+      { n:26, src: `\t\tcandidate := <span class="pk">filepath</span>.<span class="fn">Join</span>(dir, <span class="st">"go.mod"</span>)`, cov: 'covered', count: 31 },
+      { n:27, src: `\t\t_, err := <span class="pk">os</span>.<span class="fn">Stat</span>(candidate)`, cov: 'covered', count: 31 },
+      { n:28, src: `\t\t<span class="kw">if</span> err == <span class="kw">nil</span> {`, cov: 'covered', count: 31 },
+      { n:29, src: `\t\t\t<span class="kw">return</span> candidate, <span class="kw">nil</span>`, cov: 'covered', count: 31 },
+      { n:30, src: `\t\t}`, cov: null },
+      { n:31, src: `\t\tparent := <span class="pk">filepath</span>.<span class="fn">Dir</span>(dir)`, cov: 'covered', count: 31 },
+      { n:32, src: `\t\t<span class="kw">if</span> parent == dir {`, cov: 'covered', count: 31 },
+      { n:33, src: `\t\t\t<span class="kw">return</span> <span class="st">""</span>, <span class="pk">fmt</span>.<span class="fn">Errorf</span>(<span class="st">"go.mod not found"</span>)`, cov: 'uncovered', count: 0 },
+      { n:34, src: `\t\t}`, cov: null },
+      { n:35, src: `\t\tdir = parent`, cov: 'covered', count: 31 },
+      { n:36, src: `\t}`, cov: null },
+      { n:37, src: `}`, cov: null },
+      { n:38, src: ``, cov: null },
+      { n:39, src: `<span class="cm">// parseModPath extracts the module path from go.mod content.</span>`, cov: null, funcBadge: { name: "parseModPath", calls: 0 } },
+      { n:40, src: `<span class="kw">func</span> <span class="fn">parseModPath</span>(content <span class="kw">string</span>) <span class="kw">string</span> {`, cov: 'uncovered', count: 0 },
+      { n:41, src: `\t<span class="kw">for</span> _, line := <span class="kw">range</span> <span class="pk">strings</span>.<span class="fn">Split</span>(content, <span class="st">"\\n"</span>) {`, cov: 'uncovered', count: 0 },
+      { n:42, src: `\t\t<span class="kw">if</span> <span class="pk">strings</span>.<span class="fn">HasPrefix</span>(line, <span class="st">"module "</span>) {`, cov: 'uncovered', count: 0 },
+      { n:43, src: `\t\t\t<span class="kw">return</span> <span class="pk">strings</span>.<span class="fn">TrimSpace</span>(line[<span class="nu">7</span>:])`, cov: 'uncovered', count: 0 },
+      { n:44, src: `\t\t}`, cov: null },
+      { n:45, src: `\t}`, cov: null },
+      { n:46, src: `\t<span class="kw">return</span> <span class="st">""</span>`, cov: 'uncovered', count: 0 },
+      { n:47, src: `}`, cov: null },
+    ]
+  },
+  {
+    pkg: "github.com/z3le/plumb/internal/profile",
+    name: "stats.go",
+    stmtPct: 100.0,
+    funcPct: 100.0,
+    funcs: [
+      { name: "FileStats",   line: 18, calls: 31 },
+      { name: "Summary",     line: 44, calls: 4  },
+    ],
+    lines: [
+      { n:1,  src: `<span class="kw">package</span> <span class="pk">profile</span>`, cov: null },
+      { n:2,  src: ``, cov: null },
+      { n:3,  src: `<span class="cm">// Stats holds coverage statistics for a file.</span>`, cov: null },
+      { n:4,  src: `<span class="kw">type</span> <span class="ty">Stats</span> <span class="kw">struct</span> {`, cov: null },
+      { n:5,  src: `\t<span class="ty">Covered</span>   <span class="kw">int</span>`, cov: null },
+      { n:6,  src: `\t<span class="ty">Uncovered</span> <span class="kw">int</span>`, cov: null },
+      { n:7,  src: `\t<span class="ty">Total</span>     <span class="kw">int</span>`, cov: null },
+      { n:8,  src: `\t<span class="ty">Pct</span>       <span class="kw">float64</span>`, cov: null },
+      { n:9,  src: `}`, cov: null },
+      { n:10, src: ``, cov: null },
+      { n:11, src: `<span class="cm">// Calc computes coverage stats from annotated lines.</span>`, cov: null, funcBadge: { name: "FileStats", calls: 31 } },
+      { n:12, src: `<span class="kw">func</span> <span class="fn">Calc</span>(lines []<span class="ty">AnnotatedLine</span>) <span class="ty">Stats</span> {`, cov: 'covered', count: 31 },
+      { n:13, src: `\t<span class="kw">var</span> s <span class="ty">Stats</span>`, cov: 'covered', count: 31 },
+      { n:14, src: `\t<span class="kw">for</span> _, l := <span class="kw">range</span> lines {`, cov: 'covered', count: 31 },
+      { n:15, src: `\t\t<span class="kw">switch</span> l.<span class="ty">Status</span> {`, cov: 'covered', count: 31 },
+      { n:16, src: `\t\t<span class="kw">case</span> <span class="ty">Covered</span>:`, cov: 'covered', count: 31 },
+      { n:17, src: `\t\t\ts.<span class="ty">Covered</span>++`, cov: 'covered', count: 31 },
+      { n:18, src: `\t\t<span class="kw">case</span> <span class="ty">Uncovered</span>:`, cov: 'covered', count: 31 },
+      { n:19, src: `\t\t\ts.<span class="ty">Uncovered</span>++`, cov: 'covered', count: 31 },
+      { n:20, src: `\t\t}`, cov: null },
+      { n:21, src: `\t}`, cov: null },
+      { n:22, src: `\ts.<span class="ty">Total</span> = s.<span class="ty">Covered</span> + s.<span class="ty">Uncovered</span>`, cov: 'covered', count: 31 },
+      { n:23, src: `\t<span class="kw">if</span> s.<span class="ty">Total</span> &gt; <span class="nu">0</span> {`, cov: 'covered', count: 31 },
+      { n:24, src: `\t\ts.<span class="ty">Pct</span> = <span class="kw">float64</span>(s.<span class="ty">Covered</span>) / <span class="kw">float64</span>(s.<span class="ty">Total</span>) * <span class="nu">100</span>`, cov: 'covered', count: 31 },
+      { n:25, src: `\t}`, cov: null },
+      { n:26, src: `\t<span class="kw">return</span> s`, cov: 'covered', count: 31 },
+      { n:27, src: `}`, cov: null },
+    ]
+  },
+  {
+    pkg: "github.com/z3le/plumb/internal/profile",
+    name: "funcs.go",
+    stmtPct: 55.0,
+    funcPct: 50.0,
+    funcs: [
+      { name: "WalkFuncs",     line: 12, calls: 31 },
+      { name: "formatReceiver",line: 40, calls: 0  },
+    ],
+    lines: [
+      { n:1,  src: `<span class="kw">package</span> <span class="pk">profile</span>`, cov: null },
+      { n:2,  src: ``, cov: null },
+      { n:3,  src: `<span class="kw">import</span> (`, cov: null },
+      { n:4,  src: `\t<span class="st">"go/ast"</span>`, cov: null },
+      { n:5,  src: `\t<span class="st">"go/parser"</span>`, cov: null },
+      { n:6,  src: `\t<span class="st">"go/token"</span>`, cov: null },
+      { n:7,  src: `)`, cov: null },
+      { n:8,  src: ``, cov: null },
+      { n:9,  src: `<span class="cm">// WalkFuncs returns all function declarations in src.</span>`, cov: null, funcBadge: { name: "WalkFuncs", calls: 31 } },
+      { n:10, src: `<span class="kw">func</span> <span class="fn">WalkFuncs</span>(src []<span class="kw">byte</span>, blocks []<span class="ty">Block</span>) []<span class="ty">AnnotatedFunc</span> {`, cov: 'covered', count: 31 },
+      { n:11, src: `\tfset := <span class="pk">token</span>.<span class="fn">NewFileSet</span>()`, cov: 'covered', count: 31 },
+      { n:12, src: `\tf, err := <span class="pk">parser</span>.<span class="fn">ParseFile</span>(fset, <span class="st">""</span>, src, <span class="nu">0</span>)`, cov: 'covered', count: 31 },
+      { n:13, src: `\t<span class="kw">if</span> err != <span class="kw">nil</span> {`, cov: 'covered', count: 31 },
+      { n:14, src: `\t\t<span class="kw">return</span> <span class="kw">nil</span>`, cov: 'uncovered', count: 0 },
+      { n:15, src: `\t}`, cov: null },
+      { n:16, src: `\t<span class="kw">var</span> out []<span class="ty">AnnotatedFunc</span>`, cov: 'covered', count: 31 },
+      { n:17, src: `\t<span class="pk">ast</span>.<span class="fn">Inspect</span>(f, <span class="kw">func</span>(n <span class="pk">ast</span>.<span class="ty">Node</span>) <span class="kw">bool</span> {`, cov: 'covered', count: 31 },
+      { n:18, src: `\t\tfd, ok := n.(*<span class="pk">ast</span>.<span class="ty">FuncDecl</span>)`, cov: 'covered', count: 31 },
+      { n:19, src: `\t\t<span class="kw">if</span> !ok {`, cov: 'covered', count: 31 },
+      { n:20, src: `\t\t\t<span class="kw">return</span> <span class="kw">true</span>`, cov: 'covered', count: 31 },
+      { n:21, src: `\t\t}`, cov: null },
+      { n:22, src: `\t\tline := fset.<span class="fn">Position</span>(fd.<span class="ty">Pos</span>()).<span class="ty">Line</span>`, cov: 'covered', count: 31 },
+      { n:23, src: `\t\tout = <span class="kw">append</span>(out, <span class="ty">AnnotatedFunc</span>{`, cov: 'covered', count: 31 },
+      { n:24, src: `\t\t\t<span class="ty">Name</span>:  <span class="fn">formatReceiver</span>(fd),`, cov: 'uncovered', count: 0 },
+      { n:25, src: `\t\t\t<span class="ty">Line</span>:  line,`, cov: 'uncovered', count: 0 },
+      { n:26, src: `\t\t\t<span class="ty">Count</span>: <span class="fn">callCount</span>(line, blocks),`, cov: 'uncovered', count: 0 },
+      { n:27, src: `\t\t})`, cov: null },
+      { n:28, src: `\t\t<span class="kw">return</span> <span class="kw">false</span>`, cov: 'uncovered', count: 0 },
+      { n:29, src: `\t})`, cov: null },
+      { n:30, src: `\t<span class="kw">return</span> out`, cov: 'covered', count: 31 },
+      { n:31, src: `}`, cov: null },
+      { n:32, src: ``, cov: null },
+      { n:33, src: `<span class="cm">// formatReceiver formats a FuncDecl name with receiver type.</span>`, cov: null, funcBadge: { name: "formatReceiver", calls: 0 } },
+      { n:34, src: `<span class="kw">func</span> <span class="fn">formatReceiver</span>(fd *<span class="pk">ast</span>.<span class="ty">FuncDecl</span>) <span class="kw">string</span> {`, cov: 'uncovered', count: 0 },
+      { n:35, src: `\t<span class="kw">if</span> fd.<span class="ty">Recv</span> == <span class="kw">nil</span> || <span class="kw">len</span>(fd.<span class="ty">Recv</span>.<span class="ty">List</span>) == <span class="nu">0</span> {`, cov: 'uncovered', count: 0 },
+      { n:36, src: `\t\t<span class="kw">return</span> fd.<span class="ty">Name</span>.<span class="ty">Name</span>`, cov: 'uncovered', count: 0 },
+      { n:37, src: `\t}`, cov: null },
+      { n:38, src: `\t<span class="cm">// TODO: format (*ReceiverType).MethodName</span>`, cov: null },
+      { n:39, src: `\t<span class="kw">return</span> fd.<span class="ty">Name</span>.<span class="ty">Name</span>`, cov: 'uncovered', count: 0 },
+      { n:40, src: `}`, cov: null },
+    ]
+  },
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+let currentSort = 'pct';
+let currentFile = null;
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+function pctClass(p) {
+  if (p >= 80) return 'good';
+  if (p >= 50) return 'ok';
+  return 'bad';
+}
+
+function fmt(p) { return p.toFixed(1) + '%'; }
+
+function renderFileList() {
+  const query = document.getElementById('search').value.toLowerCase();
+  const list  = document.getElementById('file-list');
+
+  let items = files.filter(f => f.name.toLowerCase().includes(query));
+
+  if (currentSort === 'pct')  items.sort((a,b) => a.stmtPct - b.stmtPct);
+  if (currentSort === 'func') items.sort((a,b) => a.funcPct - b.funcPct);
+  if (currentSort === 'name') items.sort((a,b) => a.name.localeCompare(b.name));
+
+  list.innerHTML = items.map(f => `
+    <div class="file-item ${currentFile === f ? 'selected' : ''}"
+         onclick="selectFile(files.find(x=>x.name==='${f.name}'))">
+      <div class="file-name">
+        <span class="file-pkg">${f.pkg.split('/').slice(-2).join('/')}</span>
+        ${f.name}
+      </div>
+      <span class="pct-pill ${pctClass(f.stmtPct)}">${fmt(f.stmtPct)}</span>
+    </div>
+  `).join('');
+}
+
+function selectFile(f) {
+  currentFile = f;
+  renderFileList();
+
+  document.getElementById('empty-state').style.display = 'none';
+  const sv = document.getElementById('source-view');
+  sv.style.display = 'flex';
+
+  document.getElementById('source-title').textContent = f.pkg.split('/').slice(-1)[0] + '/' + f.name;
+  document.getElementById('src-stmt-pct').textContent = fmt(f.stmtPct);
+  document.getElementById('src-stmt-pct').className = 'hi';
+  document.getElementById('src-func-pct').textContent = fmt(f.funcPct);
+
+  // func table
+  const tbody = document.getElementById('func-tbody');
+  tbody.innerHTML = f.funcs.map(fn => `
+    <tr>
+      <td class="name">${fn.name}</td>
+      <td class="lineno">${fn.line}</td>
+      <td class="count ${fn.calls === 0 ? 'zero' : ''}">${fn.calls === 0 ? '✗ 0' : '×' + fn.calls}</td>
+    </tr>
+  `).join('');
+
+  // source table
+  const tbl = document.getElementById('source-table');
+  tbl.innerHTML = f.lines.map(l => {
+    let rows = '';
+
+    if (l.funcBadge) {
+      const b = l.funcBadge;
+      const cls = b.calls > 0 ? 'hit' : 'miss';
+      const label = b.calls > 0 ? `×${b.calls}` : '✗ not called';
+      rows += `<tr class="func-badge-row">
+        <td class="lineno"></td>
+        <td class="hitcount"></td>
+        <td class="func-badge-cell" colspan="1">
+          <span class="func-badge">
+            <span class="fname">${b.name}</span>
+            <span class="fcalls ${cls}">${label}</span>
+          </span>
+        </td>
+      </tr>`;
+    }
+
+    const covClass = l.cov || '';
+    const hitClass = l.cov === 'covered' ? 'hit' : l.cov === 'uncovered' ? 'miss' : '';
+    const countStr = l.cov === 'covered' ? l.count : l.cov === 'uncovered' ? '0' : '';
+
+    rows += `<tr class="${covClass}">
+      <td class="lineno">${l.n}</td>
+      <td class="hitcount ${hitClass}">${countStr}</td>
+      <td class="source-line">${l.src}</td>
+    </tr>`;
+
+    return rows;
+  }).join('');
+}
+
+function filterFiles() { renderFileList(); }
+
+function sortFiles(by) {
+  currentSort = by;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sort-' + by).classList.add('active');
+  renderFileList();
+}
+
+// kick off
+renderFileList();
+</script>
+</body>
+</html>

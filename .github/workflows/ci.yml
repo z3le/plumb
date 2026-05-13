@@ -1,8 +1,7 @@
-# .github/workflows/ci.yml
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 permissions:
@@ -12,21 +11,36 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+          cache: true
       - run: go vet ./...
-      - run: go test -race ./...
-      - run: go build ./cmd/plumb
+      - run: go test -race -coverprofile=coverage.out ./...
+      - run: go build -o plumb ./cmd/plumb
+      - run: ./plumb report coverage.out --out coverage.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.html
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - uses: golangci/golangci-lint-action@v9
+          cache: true
+      - name: gofmt
+        run: |
+          files=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
+          if [ -n "$files" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$files"
+            exit 1
+          fi
+      - uses: golangci/golangci-lint-action@v6
         with:
-          version: v2.11
+          version: v1.64

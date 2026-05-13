@@ -4,88 +4,133 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestFindGoMod_FindsInCurrentDir(t *testing.T) {
-	// use the repo root — it has a go.mod
-	repoRoot := filepath.Join("..", "..")
-	got, err := findGoMod(repoRoot)
-	if err != nil {
-		t.Fatalf("findGoMod failed: %v", err)
+func TestFindGoMod(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   func(t *testing.T) string
+		wantErr bool
+	}{
+		{
+			name:    "finds go.mod in current directory",
+			start:   func(t *testing.T) string { return filepath.Join("..", "..") },
+			wantErr: false,
+		},
+		{
+			name:    "finds go.mod from subdirectory",
+			start:   func(t *testing.T) string { return filepath.Join("..", "..", "cmd", "plumb") },
+			wantErr: false,
+		},
+		{
+			name:    "error when no go.mod exists",
+			start:   func(t *testing.T) string { return t.TempDir() },
+			wantErr: true,
+		},
 	}
-	want := filepath.Join(repoRoot, "go.mod")
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := findGoMod(tc.start(t))
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "go.mod", filepath.Base(got))
+			}
+		})
 	}
 }
 
-func TestFindGoMod_FindsFromSubdir(t *testing.T) {
-	// starting from a subdirectory should still find the repo root go.mod
-	subdir := filepath.Join("..", "..", "cmd", "plumb")
-	got, err := findGoMod(subdir)
-	if err != nil {
-		t.Fatalf("findGoMod failed: %v", err)
-	}
-	if filepath.Base(got) != "go.mod" {
-		t.Errorf("expected go.mod, got %q", got)
-	}
+func TestFindGoMod_Exported(t *testing.T) {
+	got, err := FindGoMod(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	require.Equal(t, "go.mod", filepath.Base(got))
 }
 
-func TestFindGoMod_ErrorsWhenNotFound(t *testing.T) {
-	// use the filesystem root — guaranteed no go.mod above it
-	_, err := findGoMod(t.TempDir())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-func TestResolveFilePath_ResolvesCorrectly(t *testing.T) {
-	// run from the repo root so go.mod is found
+func TestReadModulePath(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(orig)
+	require.NoError(t, err)
 
-	// plumb's own module path is "github.com/z3le/plumb"
-	got, err := ResolveFilePath("github.com/z3le/plumb/cmd/plumb/main.go")
-	if err != nil {
-		t.Fatalf("ResolveFilePath failed: %v", err)
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "reads module path from repo go.mod",
+			path: filepath.Join(repoRoot, "go.mod"),
+			want: "github.com/z3le/plumb",
+		},
+		{
+			name:    "error on missing file",
+			path:    "/nonexistent/go.mod",
+			wantErr: true,
+		},
+		{
+			name: "error on invalid go.mod content",
+			path: func() string {
+				f, err := os.CreateTemp(t.TempDir(), "go.mod")
+				require.NoError(t, err)
+				_, err = f.WriteString("this is not valid go.mod syntax !!!@@@")
+				require.NoError(t, err)
+				f.Close()
+				return f.Name()
+			}(),
+			wantErr: true,
+		},
 	}
 
-	want := filepath.Join(repoRoot, "cmd", "plumb", "main.go")
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ReadModulePath(tc.path)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
+		})
 	}
 }
 
-func TestResolveFilePath_FileExists(t *testing.T) {
+func TestResolveFilePath(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(orig)
+	require.NoError(t, err)
+	t.Cleanup(func() { os.Chdir(orig) })
 
-	diskPath, err := ResolveFilePath("github.com/z3le/plumb/cmd/plumb/main.go")
-	if err != nil {
-		t.Fatalf("ResolveFilePath failed: %v", err)
+	require.NoError(t, os.Chdir(repoRoot))
+
+	tests := []struct {
+		name     string
+		filename string
+		want     string
+	}{
+		{
+			name:     "resolves cmd/plumb/main.go",
+			filename: "github.com/z3le/plumb/cmd/plumb/main.go",
+			want:     filepath.Join(repoRoot, "cmd", "plumb", "main.go"),
+		},
+		{
+			name:     "resolved path exists on disk",
+			filename: "github.com/z3le/plumb/cmd/plumb/main.go",
+			want:     filepath.Join(repoRoot, "cmd", "plumb", "main.go"),
+		},
 	}
 
-	if _, err := os.Stat(diskPath); err != nil {
-		t.Errorf("resolved path does not exist on disk: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveFilePath(tc.filename)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			_, statErr := os.Stat(got)
+			require.NoError(t, statErr)
+		})
 	}
 }

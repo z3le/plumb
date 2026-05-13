@@ -4,120 +4,125 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/cover"
 )
 
 var simpleDiskPath = filepath.Join("..", "..", "testdata", "fixtures", "simple", "math.go")
+var methodsDiskPath = filepath.Join("..", "..", "testdata", "fixtures", "methods", "server.go")
 
 func simpleProfile(t *testing.T) *cover.Profile {
 	t.Helper()
 	profiles, err := cover.ParseProfiles(
 		filepath.Join("..", "..", "testdata", "fixtures", "simple.out"),
 	)
-	if err != nil {
-		t.Fatalf("ParseProfiles: %v", err)
-	}
+	require.NoError(t, err)
 	return profiles[0]
 }
 
-func TestWalkFuncs_Count(t *testing.T) {
-	p := simpleProfile(t)
-	funcs, err := WalkFuncs(p, simpleDiskPath)
-	if err != nil {
-		t.Fatalf("WalkFuncs: %v", err)
-	}
-	// math.go has Add and Abs
-	if len(funcs) != 2 {
-		t.Errorf("got %d funcs, want 2", len(funcs))
-	}
+func methodsProfile(t *testing.T) *cover.Profile {
+	t.Helper()
+	profiles, err := cover.ParseProfiles(
+		filepath.Join("..", "..", "testdata", "fixtures", "methods.out"),
+	)
+	require.NoError(t, err)
+	return profiles[0]
 }
 
-func TestWalkFuncs_Names(t *testing.T) {
-	p := simpleProfile(t)
-	funcs, err := WalkFuncs(p, simpleDiskPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if funcs[0].Name != "Add" {
-		t.Errorf("funcs[0].Name = %q, want \"Add\"", funcs[0].Name)
-	}
-	if funcs[1].Name != "Abs" {
-		t.Errorf("funcs[1].Name = %q, want \"Abs\"", funcs[1].Name)
-	}
+func TestWalkFuncs(t *testing.T) {
+	t.Run("simple: count, names, start lines, call counts", func(t *testing.T) {
+		p := simpleProfile(t)
+		funcs, err := WalkFuncs(p, simpleDiskPath)
+		require.NoError(t, err)
+		require.Len(t, funcs, 2)
+
+		tests := []struct {
+			idx       int
+			name      string
+			startLine int
+			count     int
+		}{
+			{0, "Add", 3, 1},
+			{1, "Abs", 7, 0},
+		}
+		for _, tc := range tests {
+			f := funcs[tc.idx]
+			require.Equal(t, tc.name, f.Name)
+			require.Equal(t, tc.startLine, f.StartLine)
+			require.Equal(t, tc.count, f.Count)
+		}
+	})
+
+	t.Run("methods: pointer and value receivers", func(t *testing.T) {
+		p := methodsProfile(t)
+		funcs, err := WalkFuncs(p, methodsDiskPath)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(funcs), 2)
+
+		require.Equal(t, "(*Server).Start", funcs[0].Name)
+		require.Equal(t, "Server.Name", funcs[1].Name)
+	})
+
+	t.Run("error on missing file", func(t *testing.T) {
+		p := simpleProfile(t)
+		_, err := WalkFuncs(p, "/nonexistent/path.go")
+		require.Error(t, err)
+	})
 }
 
-func TestWalkFuncs_CoveredFunc(t *testing.T) {
-	p := simpleProfile(t)
-	funcs, err := WalkFuncs(p, simpleDiskPath)
-	if err != nil {
-		t.Fatal(err)
+func TestCallCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		bodyStart int
+		bodyEnd   int
+		blocks    []cover.ProfileBlock
+		want      int
+	}{
+		{
+			name:      "block inside body, hit",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{{StartLine: 5, EndLine: 10, Count: 3}},
+			want:   3,
+		},
+		{
+			name:      "block inside body, miss",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{{StartLine: 5, EndLine: 10, Count: 0}},
+			want:   0,
+		},
+		{
+			name:      "block outside body",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{{StartLine: 20, EndLine: 30, Count: 5}},
+			want:   0,
+		},
+		{
+			name:      "block starts at body end",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{{StartLine: 10, EndLine: 15, Count: 7}},
+			want:   7,
+		},
+		{
+			name:      "empty blocks slice",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{},
+			want:   0,
+		},
+		{
+			name:      "first matching block wins",
+			bodyStart: 5, bodyEnd: 10,
+			blocks: []cover.ProfileBlock{
+				{StartLine: 5, EndLine: 7, Count: 2},
+				{StartLine: 8, EndLine: 10, Count: 9},
+			},
+			want: 2,
+		},
 	}
-	// Add is covered (Count=1 in simple.out)
-	if funcs[0].Count != 1 {
-		t.Errorf("Add count = %d, want 1", funcs[0].Count)
-	}
-}
 
-func TestWalkFuncs_UncoveredFunc(t *testing.T) {
-	p := simpleProfile(t)
-	funcs, err := WalkFuncs(p, simpleDiskPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Abs is uncovered (Count=0 in simple.out)
-	if funcs[1].Count != 0 {
-		t.Errorf("Abs count = %d, want 0", funcs[1].Count)
-	}
-}
-
-func TestWalkFuncs_StartLine(t *testing.T) {
-	p := simpleProfile(t)
-	funcs, err := WalkFuncs(p, simpleDiskPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if funcs[0].StartLine != 3 {
-		t.Errorf("Add start line = %d, want 3", funcs[0].StartLine)
-	}
-	if funcs[1].StartLine != 7 {
-		t.Errorf("Abs start line = %d, want 7", funcs[1].StartLine)
-	}
-}
-
-func TestWalkFuncs_MissingFile(t *testing.T) {
-	p := simpleProfile(t)
-	_, err := WalkFuncs(p, "/nonexistent/path.go")
-	if err == nil {
-		t.Fatal("expected error for missing file, got nil")
-	}
-}
-
-func TestCallCount_Hit(t *testing.T) {
-	blocks := []cover.ProfileBlock{
-		{StartLine: 5, EndLine: 10, Count: 3},
-	}
-	got := callCount(5, 10, blocks)
-	if got != 3 {
-		t.Errorf("got %d, want 3", got)
-	}
-}
-
-func TestCallCount_Miss(t *testing.T) {
-	blocks := []cover.ProfileBlock{
-		{StartLine: 5, EndLine: 10, Count: 0},
-	}
-	got := callCount(5, 10, blocks)
-	if got != 0 {
-		t.Errorf("got %d, want 0", got)
-	}
-}
-
-func TestCallCount_NoMatchingBlock(t *testing.T) {
-	blocks := []cover.ProfileBlock{
-		{StartLine: 20, EndLine: 30, Count: 5},
-	}
-	got := callCount(5, 10, blocks)
-	if got != 0 {
-		t.Errorf("got %d, want 0", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := callCount(tc.bodyStart, tc.bodyEnd, tc.blocks)
+			require.Equal(t, tc.want, got)
+		})
 	}
 }

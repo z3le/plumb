@@ -1,0 +1,3 @@
+mode: set
+github.com/z3le/plumb/testdata/fixtures/methods/server.go:5.27,7.2 1 1
+github.com/z3le/plumb/testdata/fixtures/methods/server.go:9.26,11.2 1 0

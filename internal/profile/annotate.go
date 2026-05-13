@@ -49,9 +49,7 @@ func Annotate(p *cover.Profile, diskPath string) ([]AnnotatedLine, error) {
 			l := &lines[ln-1]
 			if b.Count > 0 {
 				l.Status = Covered
-				if b.Count > l.Count {
-					l.Count = b.Count
-				}
+				l.Count = max(l.Count, b.Count)
 			} else if l.Status != Covered {
 				l.Status = Uncovered
 			}

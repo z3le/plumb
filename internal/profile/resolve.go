@@ -37,6 +37,24 @@ func ResolveFilePath(filename string) (string, error) {
 	return filepath.Join(moduleRoot, rel), nil
 }
 
+// FindGoMod walks up from start until it finds a go.mod file.
+func FindGoMod(start string) (string, error) {
+	return findGoMod(start)
+}
+
+// ReadModulePath reads the module path from a go.mod file.
+func ReadModulePath(gomodPath string) (string, error) {
+	data, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return "", fmt.Errorf("reading go.mod: %w", err)
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return "", fmt.Errorf("parsing go.mod: %w", err)
+	}
+	return f.Module.Mod.Path, nil
+}
+
 func findGoMod(start string) (string, error) {
 	dir := start
 	for {

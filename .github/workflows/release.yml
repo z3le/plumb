@@ -34,12 +34,27 @@ jobs:
         run: |
           SHA=$(git rev-parse --short HEAD)
           DATE=$(date +%Y-%m-%d)
-          ENTRY="## ${DATE} (${SHA})"$'\n'$'\n'
-          ENTRY+=$(git log -1 --pretty=format:"- %s%n%n%b")"$'\n'$'\n'"
+          SUBJECT=$(git log -1 --pretty=format:"%s")
+          BODY=$(git log -1 --pretty=format:"%b")
 
-          # Preserve everything after the first line (## [Unreleased])
+          {
+            echo "## ${DATE} (${SHA})"
+            echo ""
+            echo "- ${SUBJECT}"
+            if [ -n "${BODY}" ]; then
+              echo ""
+              echo "${BODY}"
+            fi
+          } > /tmp/release_notes.md
+
           tail -n +2 CHANGELOG.md > /tmp/changelog_tail.md
-          { echo "## [Unreleased]"; echo ""; echo "${ENTRY}"; cat /tmp/changelog_tail.md; } > CHANGELOG.md
+          {
+            echo "## [Unreleased]"
+            echo ""
+            cat /tmp/release_notes.md
+            echo ""
+            cat /tmp/changelog_tail.md
+          } > CHANGELOG.md
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -47,11 +62,10 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update CHANGELOG [skip ci]"
           git push
 
-      - name: Create rolling release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest
-          body_path: CHANGELOG.md
+          tag_name: ${{ github.sha }}
+          name: ${{ github.sha }}
+          body_path: /tmp/release_notes.md
           files: dist/*
-          prerelease: true

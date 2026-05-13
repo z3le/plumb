@@ -29,8 +29,8 @@ Examples:
 `)
 	}
 
-	open  := fs.Bool("open", false, "open report in browser after writing")
-	out   := fs.String("out", "coverage.html", "output HTML file")
+	open := fs.Bool("open", false, "open report in browser after writing")
+	out := fs.String("out", "coverage.html", "output HTML file")
 	title := fs.String("title", "", "report title (default: module name)")
 
 	if err := fs.Parse(args); err != nil {

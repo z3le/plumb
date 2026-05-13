@@ -47,18 +47,9 @@ plumb report [flags] [profile]
 - Dark mode via `prefers-color-scheme`
 - Single self-contained HTML file — no external requests
 
-## Comparison to `go tool cover`
+## How does the report look like
 
-|                        | `go tool cover` | `plumb`         |
-|------------------------|-----------------|-----------------|
-| File tree navigation   | No              | Yes             |
-| Function coverage      | No              | Yes             |
-| Hit counts per line    | No              | Yes             |
-| Sortable file list     | No              | Yes             |
-| Search/filter files    | No              | Yes             |
-| Dark mode              | No              | Yes             |
-| Syntax highlighting    | No              | Yes             |
-| Self-contained HTML    | Yes             | Yes             |
+<img width="1131" height="1037" alt="image" src="https://github.com/user-attachments/assets/a7eb9c09-6bed-49a4-8d76-3f65fd029d1b" />
 
 ## Roadmap
 

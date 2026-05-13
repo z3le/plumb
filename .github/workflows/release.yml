@@ -1,6 +1,8 @@
 name: release
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
     branches: [main, master]
 
 permissions:
@@ -9,6 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,14 +50,12 @@ jobs:
             fi
           } > /tmp/release_notes.md
 
-          tail -n +2 CHANGELOG.md > /tmp/changelog_tail.md
           {
-            echo "## [Unreleased]"
-            echo ""
             cat /tmp/release_notes.md
             echo ""
-            cat /tmp/changelog_tail.md
-          } > CHANGELOG.md
+            cat CHANGELOG.md
+          } > /tmp/CHANGELOG.md
+          mv /tmp/CHANGELOG.md CHANGELOG.md
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -63,9 +64,11 @@ jobs:
           git push
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        run: echo "SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.sha }}
-          name: ${{ github.sha }}
+          tag_name: ${{ env.SHA }}
+          name: ${{ env.SHA }}
           body_path: /tmp/release_notes.md
           files: dist/*

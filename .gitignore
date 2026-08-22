@@ -20,6 +20,7 @@ profile.cov
 # Dependency directories (remove the comment below to include it)
 # vendor/
 .claude
+.planning
 
 # Go workspace file
 go.work

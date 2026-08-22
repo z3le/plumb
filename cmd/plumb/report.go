@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,9 @@ import (
 	"github.com/z3le/plumb/internal/report"
 )
 
-func reportCmd(args []string) error {
+func reportCmd(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprint(fs.Output(), `Usage: plumb report [flags] [profile]
 
@@ -29,9 +31,7 @@ Examples:
 `)
 	}
 
-	open := fs.Bool("open", false, "open report in browser after writing")
-	out := fs.String("out", "coverage.html", "output HTML file")
-	title := fs.String("title", "", "report title (default: module name)")
+	open, out, title := addReportFlags(fs)
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -42,6 +42,24 @@ Examples:
 		profilePath = fs.Args()[0]
 	}
 
+	return renderReport(profilePath, *out, *title, *open, stdout, stderr)
+}
+
+// addReportFlags registers the output flags that report and run
+// share, so the two commands cannot drift apart. Both commands end in
+// the same renderReport call, so they must accept the same flags.
+func addReportFlags(fs *flag.FlagSet) (open *bool, out, title *string) {
+	open = fs.Bool("open", false, "open report in browser after writing")
+	out = fs.String("out", "coverage.html", "output HTML file")
+	title = fs.String("title", "", "report title (default: module name)")
+	return open, out, title
+}
+
+// renderReport parses a coverage profile and writes it as an HTML
+// report. It is the render path shared by report and run: run calls it
+// only after go test exits 0. Its body references no process-level
+// stream — all output goes through stdout and stderr.
+func renderReport(profilePath, out, title string, open bool, stdout, stderr io.Writer) error {
 	// Find module root and path
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -62,25 +80,22 @@ Examples:
 	if err != nil {
 		return fmt.Errorf("parsing profile: %w", err)
 	}
-	if len(profiles) == 0 {
-		return fmt.Errorf("no coverage data in %s", profilePath)
-	}
 
 	// Build the report data
-	r, err := report.Build(profiles, modulePath, moduleRoot, *title)
+	r, err := report.Build(profiles, modulePath, moduleRoot, title)
 	if err != nil {
 		return fmt.Errorf("building report: %w", err)
 	}
 
 	// Render to HTML
-	if err := report.RenderToFile(*out, r); err != nil {
+	if err := report.RenderToFile(out, r); err != nil {
 		return fmt.Errorf("writing report: %w", err)
 	}
-	fmt.Printf("plumb: wrote %s (%.1f%% stmts, %.1f%% funcs)\n", *out, r.StmtPct, r.FuncPct)
+	fmt.Fprintf(stdout, "plumb: wrote %s (%.1f%% stmts, %.1f%% funcs)\n", out, r.StmtPct, r.FuncPct)
 
-	if *open {
-		if err := openBrowser(*out); err != nil {
-			fmt.Fprintf(os.Stderr, "plumb: could not open browser: %v\n", err)
+	if open {
+		if err := openBrowser(out); err != nil {
+			fmt.Fprintf(stderr, "plumb: could not open browser: %v\n", err)
 		}
 	}
 	return nil

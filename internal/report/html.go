@@ -70,9 +70,10 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 
 		// accumulate totals
 		for _, l := range lines {
-			if l.Status == profile.Covered {
+			switch l.Status {
+			case profile.Covered:
 				totalCovered++
-			} else if l.Status == profile.Uncovered {
+			case profile.Uncovered:
 				totalUncovered++
 			}
 		}

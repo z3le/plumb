@@ -1,21 +1,37 @@
+version: "2"
 linters:
-  disable-all: true
+  default: none
   enable:
+    - bodyclose
     - errcheck
+    - errorlint
     - govet
     - ineffassign
+    - misspell
     - staticcheck
     - unused
-    - misspell
-    - bodyclose
-    - errorlint
-
-linters-settings:
-  misspell:
-    locale: US
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

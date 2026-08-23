@@ -47,14 +47,26 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 	var totalFuncsCovered, totalFuncsTotal int
 
 	for _, pp := range profiles {
+		// A nil profile carries no block to count or annotate. Skip it,
+		// the way StmtTotalsAll skips one, so the two agree.
+		if pp == nil || pp.CoverProfile == nil {
+			continue
+		}
+
 		diskPath, err := profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
 		if err != nil {
 			return nil, err
 		}
 
+		// A source file the run cannot read or highlight drops out of
+		// the report, the same way a file that fails to parse drops its
+		// function list. A report shows the files it can show: a build
+		// downloads a profile whose tree is not complete, and one absent
+		// file must not remove every other file from the report.
 		lines, err := profile.Annotate(pp.CoverProfile, diskPath)
 		if err != nil {
-			return nil, fmt.Errorf("annotating %s: %w", pp.FileName, err)
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
+			continue
 		}
 
 		funcs, err := profile.WalkFuncs(pp.CoverProfile, diskPath)
@@ -65,7 +77,8 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 
 		rendered, err := renderLines(lines, diskPath)
 		if err != nil {
-			return nil, fmt.Errorf("highlighting %s: %w", pp.FileName, err)
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
+			continue
 		}
 
 		// Take the totals once and divide here: StmtPct walks the same

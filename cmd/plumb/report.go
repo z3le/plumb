@@ -32,13 +32,19 @@ Examples:
 
 	open, out, title := addReportFlags(fs)
 
-	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
 	profilePath := ".plumb/coverage.out"
-	if len(fs.Args()) > 0 {
-		profilePath = fs.Args()[0]
+	if fs.NArg() > 0 {
+		profilePath = fs.Arg(0)
+	}
+	// A second positional argument is a mistyped invocation (WR-01).
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "plumb: unexpected argument %q, want one profile\n", fs.Arg(1))
+		fs.Usage()
+		return newExitError(2, "unexpected argument")
 	}
 
 	return renderReport(profilePath, *out, *title, *open, stdout, stderr)
@@ -75,6 +81,16 @@ func renderReport(profilePath, out, title string, open bool, stdout, stderr io.W
 	r, err := report.Build(profiles, modulePath, moduleRoot, title)
 	if err != nil {
 		return fmt.Errorf("building report: %w", err)
+	}
+
+	// A file the run could not read is left out of the report. Name
+	// each one, because a percentage from fewer files than the profile
+	// measured must never look like a complete result.
+	for _, s := range r.Skipped {
+		fmt.Fprintf(stderr, "plumb: skipped %s: %s\n", s.Name, s.Reason)
+	}
+	if len(r.Skipped) > 0 && len(r.Files) == 0 {
+		return fmt.Errorf("no source file could be read for %s", profilePath)
 	}
 
 	// Render to HTML

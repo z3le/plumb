@@ -154,10 +154,33 @@ func TestBuild(t *testing.T) {
 		require.LessOrEqual(t, r.StmtPct, 100.0)
 	})
 
-	t.Run("error when disk file missing", func(t *testing.T) {
+	t.Run("skips a file it cannot read, and names it", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		_, err := Build(profiles, modulePath, t.TempDir(), "")
-		require.Error(t, err)
+		r, err := Build(profiles, modulePath, t.TempDir(), "")
+		// One unreadable file drops out of the report; it never
+		// removes every other file. The caller reports the skip, so
+		// a shorter file list is visible and not silent.
+		require.NoError(t, err)
+		require.Empty(t, r.Files)
+		require.NotEmpty(t, r.Skipped)
+		require.Equal(t, len(profiles), len(r.Skipped))
+		require.NotEmpty(t, r.Skipped[0].Reason)
+	})
+
+	t.Run("renders the files it can read when one is missing", func(t *testing.T) {
+		profiles := loadProfiles(t)
+		require.NotEmpty(t, profiles)
+		// Add a profile entry for a file that is not on disk. The
+		// real files must still render.
+		missing := &profile.ParsedProfile{
+			FileName:     modulePath + "/absent.go",
+			CoverProfile: profiles[0].CoverProfile,
+		}
+		r, err := Build(append(profiles, missing), modulePath, moduleRoot, "")
+		require.NoError(t, err)
+		require.NotEmpty(t, r.Files)
+		require.Len(t, r.Skipped, 1)
+		require.Contains(t, r.Skipped[0].Name, "absent.go")
 	})
 }
 

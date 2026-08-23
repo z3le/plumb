@@ -14,6 +14,14 @@ type Report struct {
 	StmtPct float64
 	FuncPct float64
 	Files   []FileReport
+	Skipped []SkippedFile // files the run could not read or highlight
+}
+
+// SkippedFile records a file the report left out, and why. A caller
+// reports these so a missing file is visible, not silent.
+type SkippedFile struct {
+	Name   string // full import path, as the profile names it
+	Reason string
 }
 
 // FileReport holds everything needed to render one file in the report.

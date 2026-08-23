@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"path/filepath"
 	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
@@ -165,19 +164,6 @@ func validThreshold(v float64) bool {
 	return v >= 0 && v <= 100
 }
 
-// sourcePath resolves a profile entry to a disk path and refuses one
-// that would read outside the module root. profile.Resolve trims a
-// prefix and joins; it does not clean a path that carries parent-
-// directory segments, so this guard runs before any read (T-02-02).
-func sourcePath(fileName, modulePath, moduleRoot string) (string, error) {
-	diskPath := profile.Resolve(fileName, modulePath, moduleRoot)
-	rel, err := filepath.Rel(moduleRoot, diskPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s: path leaves the module root", fileName)
-	}
-	return diskPath, nil
-}
-
 // funcTotals walks the source tree behind every parsed profile and
 // returns the module function totals. Unlike report.Build, it never
 // drops a file it cannot read or parse: it returns the error instead,
@@ -187,7 +173,7 @@ func sourcePath(fileName, modulePath, moduleRoot string) (string, error) {
 func funcTotals(profiles []*profile.ParsedProfile, modulePath, moduleRoot string) (covered, total int, err error) {
 	for _, pp := range profiles {
 		var diskPath string
-		diskPath, err = sourcePath(pp.FileName, modulePath, moduleRoot)
+		diskPath, err = profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
 		if err != nil {
 			return 0, 0, err
 		}

@@ -47,7 +47,10 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 	var totalFuncsCovered, totalFuncsTotal int
 
 	for _, pp := range profiles {
-		diskPath := profile.Resolve(pp.FileName, modulePath, moduleRoot)
+		diskPath, err := profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
+		if err != nil {
+			return nil, err
+		}
 
 		lines, err := profile.Annotate(pp.CoverProfile, diskPath)
 		if err != nil {

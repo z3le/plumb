@@ -269,7 +269,7 @@ func firstNonASCIIByte(s string) (b byte, index int, found bool) {
 }
 
 // TestCheckOutputIsPlainASCII is the CHK-05 backstop: D-26 keeps
-// plumb free of colour by construction, and this test keeps that true
+// plumb free of color by construction, and this test keeps that true
 // as the code changes.
 func TestCheckOutputIsPlainASCII(t *testing.T) {
 	tests := []struct {

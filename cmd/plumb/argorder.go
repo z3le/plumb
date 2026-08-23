@@ -23,7 +23,7 @@ type boolFlag interface {
 // after a positional argument and gives no warning.
 //
 // Everything after a bare "--" stays positional and is never scanned
-// for flags, which matches the terminator flag.Parse itself honours.
+// for flags, which matches the terminator flag.Parse itself honors.
 func reorderArgs(fs *flag.FlagSet, args []string) []string {
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {

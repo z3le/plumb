@@ -6,6 +6,9 @@
 - Fix `plumb report` and `plumb run`, which ignored a flag that came after the
   file name. `plumb report coverage.out --out report.html` wrote `coverage.html`
   and gave no warning. Each command now reads a flag in either position.
+- Refuse a profile that names a source file outside the module root. `plumb
+  report` and `plumb run` read such a file before; they now stop with an error,
+  as `plumb check` does.
 - Statement coverage now counts the statements in each profile block, the way
   `go tool cover -func` counts them. It counted annotated source lines before.
   A report therefore shows a different statement percentage than v0.1.2 showed

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -34,8 +35,24 @@ func Parse(path string) ([]*ParsedProfile, error) {
 	return out, nil
 }
 
-// Resolve maps an import-path filename to a disk path.
+// Resolve maps an import-path filename to a disk path. It trims a
+// prefix and joins; it does not remove a parent-directory segment.
+// Prefer ResolveSafe for a name that comes from a profile file.
 func Resolve(filename, modulePath, moduleRoot string) string {
 	rel := strings.TrimPrefix(filename, modulePath+"/")
 	return filepath.Join(moduleRoot, filepath.FromSlash(rel))
+}
+
+// ResolveSafe maps an import-path filename to a disk path and refuses
+// a name that resolves outside the module root. A coverage profile is
+// an input file, and a build downloads one as an artifact, so a name
+// in it can carry parent-directory segments. Every caller that reads
+// the file it gets back must use this function, not Resolve.
+func ResolveSafe(filename, modulePath, moduleRoot string) (string, error) {
+	diskPath := Resolve(filename, modulePath, moduleRoot)
+	rel, err := filepath.Rel(moduleRoot, diskPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s: path leaves the module root", filename)
+	}
+	return diskPath, nil
 }

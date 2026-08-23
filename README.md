@@ -39,6 +39,34 @@ plumb report coverage.out --open
 plumb run ./internal/... -- -race -count=1
 ```
 
+## Fail a build on low coverage
+
+`plumb check` fails a build when coverage falls below a number you choose.
+
+```sh
+plumb check coverage.out --min-statements 80
+```
+
+It exits 0 when every threshold is met and 3 when one is not. The failure line
+names the actual value, the required value, and the flag that failed:
+
+```
+plumb: statement coverage 79.9%, need 80.0% (--min-statements)
+```
+
+`--min-statements` reads the profile and nothing else, so it also works on a
+profile downloaded as a build artifact. `--min-functions` adds a second bar and
+reads your source files, so run it in the repository the profile came from.
+
+Paste these two steps into a job in your GitHub Actions workflow:
+
+```yaml
+      - run: go test -coverprofile=coverage.out ./...
+      - run: go run github.com/z3le/plumb/cmd/plumb@latest check coverage.out --min-statements 80
+```
+
+There is no install step and no version to go stale.
+
 `plumb --help` lists every command:
 
 ```
@@ -69,6 +97,15 @@ plumb report [flags] [profile]
   --title str    report title (default: module name)
 ```
 
+```
+plumb check [flags] [profile]
+
+  --min-statements n   minimum statement coverage percent
+  --min-functions n    minimum function coverage percent (reads the source tree)
+```
+
+The profile defaults to `.plumb/coverage.out`. A missed threshold exits 3.
+
 ## What the report shows
 
 - File list sortable by statement %, function %, or name
@@ -87,7 +124,7 @@ plumb report [flags] [profile]
 
 - [ ] Diff coverage — show coverage only on lines changed since a git ref
 - [ ] Branch coverage — AST-based approximation
-- [ ] `plumb check` — CI threshold enforcement
+- [x] `plumb check` — CI threshold enforcement
 
 ## License
 

@@ -65,11 +65,17 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 			return nil, fmt.Errorf("highlighting %s: %w", pp.FileName, err)
 		}
 
-		stmtPct := profile.StmtPct(pp.CoverProfile)
+		// Take the totals once and divide here: StmtPct walks the same
+		// blocks to return the same ratio, so a second call would walk
+		// every block twice for one file.
+		stmtCovered, stmtTotal := profile.StmtTotals(pp.CoverProfile)
+		var stmtPct float64
+		if stmtTotal > 0 {
+			stmtPct = float64(stmtCovered) / float64(stmtTotal) * 100
+		}
 		funcPct := profile.FuncPct(funcs)
 
 		// accumulate totals
-		stmtCovered, stmtTotal := profile.StmtTotals(pp.CoverProfile)
 		totalStmtCovered += stmtCovered
 		totalStmtTotal += stmtTotal
 		for _, f := range funcs {

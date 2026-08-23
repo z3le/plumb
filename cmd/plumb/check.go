@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -111,19 +110,10 @@ Examples:
 	}
 
 	if given["min-functions"] {
-		cwd, err := os.Getwd()
+		modulePath, moduleRoot, err := resolveModule()
 		if err != nil {
-			return fmt.Errorf("getting cwd: %w", err)
+			return err
 		}
-		gomodPath, err := profile.FindGoMod(cwd)
-		if err != nil {
-			return fmt.Errorf("finding go.mod: %w", err)
-		}
-		modulePath, err := profile.ReadModulePath(gomodPath)
-		if err != nil {
-			return fmt.Errorf("reading module path: %w", err)
-		}
-		moduleRoot := filepath.Dir(gomodPath)
 
 		funcCovered, funcTotal, err := funcTotals(profiles, modulePath, moduleRoot)
 		if err != nil {

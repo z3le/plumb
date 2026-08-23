@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -61,19 +60,10 @@ func addReportFlags(fs *flag.FlagSet) (open *bool, out, title *string) {
 // stream — all output goes through stdout and stderr.
 func renderReport(profilePath, out, title string, open bool, stdout, stderr io.Writer) error {
 	// Find module root and path
-	cwd, err := os.Getwd()
+	modulePath, moduleRoot, err := resolveModule()
 	if err != nil {
-		return fmt.Errorf("getting cwd: %w", err)
+		return err
 	}
-	gomodPath, err := profile.FindGoMod(cwd)
-	if err != nil {
-		return fmt.Errorf("finding go.mod: %w", err)
-	}
-	modulePath, err := profile.ReadModulePath(gomodPath)
-	if err != nil {
-		return fmt.Errorf("reading module path: %w", err)
-	}
-	moduleRoot := filepath.Dir(gomodPath)
 
 	// Parse the coverage profile
 	profiles, err := profile.Parse(profilePath)

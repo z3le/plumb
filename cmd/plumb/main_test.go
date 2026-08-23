@@ -73,7 +73,7 @@ func TestHelpListsAllCommands(t *testing.T) {
 		require.True(t, found, "help output missing a line for command %q with its summary", c.name)
 	}
 
-	order := []string{"run", "report", "version", "help"}
+	order := []string{"run", "report", "check", "version", "help"}
 	positions := make([]int, len(order))
 	for i, name := range order {
 		pos := strings.Index(out, "\n  "+name)

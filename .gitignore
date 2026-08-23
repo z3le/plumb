@@ -15,7 +15,10 @@ coverage.*
 profile.cov
 
 # But keep test fixtures
-!testdata/**/*.out
+!**/testdata/**/*.out
+
+# The built binary at the repository root
+/plumb
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

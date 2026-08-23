@@ -1,5 +1,40 @@
 package profile
 
+import "golang.org/x/tools/cover"
+
+// StmtTotals returns the NumStmt-weighted covered and total statement
+// counts for one profile — the same weight go tool cover -func
+// applies to a file. Returns 0, 0 for a nil profile.
+func StmtTotals(p *cover.Profile) (covered, total int) {
+	if p == nil {
+		return 0, 0
+	}
+	for _, b := range p.Blocks {
+		total += b.NumStmt
+		if b.Count > 0 {
+			covered += b.NumStmt
+		}
+	}
+	return covered, total
+}
+
+// StmtTotalsAll sums StmtTotals over every parsed profile, the module
+// total that check compares against a threshold. An entry with a nil
+// CoverProfile is skipped rather than counted as zero statements,
+// so a profile that failed to parse cannot silently narrow the
+// denominator.
+func StmtTotalsAll(profiles []*ParsedProfile) (covered, total int) {
+	for _, pp := range profiles {
+		if pp == nil || pp.CoverProfile == nil {
+			continue
+		}
+		c, t := StmtTotals(pp.CoverProfile)
+		covered += c
+		total += t
+	}
+	return covered, total
+}
+
 // StmtPct returns the statement coverage percentage for a set of annotated lines.
 // Uncoverable lines (blank lines, comments, declarations) are excluded.
 func StmtPct(lines []AnnotatedLine) float64 {

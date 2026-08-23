@@ -35,6 +35,7 @@ func allCommands() []command {
 	return []command{
 		{name: "run", summary: "Run tests with coverage and render the report", run: runCmd},
 		{name: "report", summary: "Render a coverage profile as an HTML report", run: reportCmd},
+		{name: "check", summary: "Check coverage against a minimum threshold", run: checkCmd},
 		{name: "version", summary: "Print the plumb version", run: versionCmd},
 		{name: "help", summary: "Show this help text", run: helpCmd},
 	}
@@ -90,12 +91,12 @@ func versionCmd(args []string, stdout, stderr io.Writer) error {
 // dispatch resolves the command name, runs it, and returns the process
 // exit code. The exit-code table is fixed for the whole phase:
 //
-//	0 — the command succeeded
-//	0 — the caller asked for help (flag.ErrHelp from the command's own
-//	    flag.FlagSet)
-//	1 — the command returned a non-nil error
-//	2 — a usage error dispatch itself detected: no arguments, or an
-//	    unknown command
+//	0 — the command succeeded, or the caller asked for help
+//	1 — the command returned an ordinary error
+//	2 — a usage error: no argument, an unknown command, or a coded
+//	    error with code 2
+//	3 — a coded error for a coverage threshold that the profile did
+//	    not meet
 func dispatch(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
@@ -121,6 +122,14 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 	// writes nothing further.
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
+	}
+	// A coded error means the command already wrote its own report to
+	// the writer it received (D-30, D-31), so dispatch only returns
+	// the code and prints nothing more — the same rule the flag.ErrHelp
+	// branch above follows.
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
 	}
 	fmt.Fprintf(stderr, "plumb: %v\n", err)
 	return 1

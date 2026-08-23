@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
 )
 
 // checkCmd reads a coverage profile and fails the build when
-// statement coverage falls below --min-statements. It is a
-// statement-only gate: per D-18 it reads the profile and nothing
-// else, so it runs against a downloaded profile artifact with no
-// source tree present.
+// statement coverage or function coverage falls below the minimum a
+// flag sets. The statement path reads the profile and nothing else
+// (D-18), so it runs against a downloaded profile artifact with no
+// source tree present. The function path additionally reads the
+// source tree, because WalkFuncs parses each source file.
 func checkCmd(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -31,11 +34,12 @@ Flags:
 		fmt.Fprint(fs.Output(), `
 Examples:
   plumb check coverage.out --min-statements 80
+  plumb check coverage.out --min-statements 80 --min-functions 70
   plumb check --min-statements 80     # reads .plumb/coverage.out
 `)
 	}
 
-	minStmts, _ := addCheckFlags(fs)
+	minStmts, minFuncs := addCheckFlags(fs)
 
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
@@ -50,8 +54,8 @@ Examples:
 		given[f.Name] = true
 	})
 
-	if !given["min-statements"] {
-		fmt.Fprint(stderr, "plumb: no coverage threshold given, want --min-statements\n")
+	if !given["min-statements"] && !given["min-functions"] {
+		fmt.Fprint(stderr, "plumb: no coverage threshold given, want --min-statements or --min-functions\n")
 		fs.Usage()
 		return newExitError(2, "no coverage threshold given")
 	}
@@ -66,34 +70,122 @@ Examples:
 		return fmt.Errorf("parsing profile: %w", err)
 	}
 
-	covered, total := profile.StmtTotalsAll(profiles)
-	var pct float64
-	if total > 0 {
-		pct = float64(covered) / float64(total) * 100
+	stmtCovered, stmtTotal := profile.StmtTotalsAll(profiles)
+
+	var failures, successParts []string
+
+	if given["min-statements"] {
+		pct := float64(stmtCovered) / float64(stmtTotal) * 100
+		got, want := truncPct(pct), truncPct(*minStmts)
+
+		// Compare the raw percentage against the raw flag value,
+		// never the truncated print value: a value equal to the
+		// threshold passes, and a value one step below it fails
+		// (CHK-01 boundary).
+		if pct < *minStmts {
+			failures = append(failures, fmt.Sprintf("plumb: statement coverage %.1f%%, need %.1f%% (--min-statements)", got, want))
+		} else {
+			successParts = append(successParts, fmt.Sprintf("%.1f%% stmts", got))
+		}
 	}
 
-	got := truncPct(pct)
-	want := truncPct(*minStmts)
+	if given["min-functions"] {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting cwd: %w", err)
+		}
+		gomodPath, err := profile.FindGoMod(cwd)
+		if err != nil {
+			return fmt.Errorf("finding go.mod: %w", err)
+		}
+		modulePath, err := profile.ReadModulePath(gomodPath)
+		if err != nil {
+			return fmt.Errorf("reading module path: %w", err)
+		}
+		moduleRoot := filepath.Dir(gomodPath)
 
-	// Compare the raw percentage against the raw flag value, never
-	// the truncated print value: a value equal to the threshold
-	// passes, and a value one step below it fails (CHK-01 boundary).
-	if pct < *minStmts {
-		fmt.Fprintf(stderr, "plumb: statement coverage %.1f%%, need %.1f%% (--min-statements)\n", got, want)
-		return fmt.Errorf("checking coverage: %w", newExitError(3, "coverage below threshold"))
+		funcCovered, funcTotal, err := funcTotals(profiles, modulePath, moduleRoot)
+		if err != nil {
+			return err
+		}
+
+		var pct float64
+		if funcTotal > 0 {
+			pct = float64(funcCovered) / float64(funcTotal) * 100
+		}
+		got, want := truncPct(pct), truncPct(*minFuncs)
+
+		if pct < *minFuncs {
+			failures = append(failures, fmt.Sprintf("plumb: function coverage %.1f%%, need %.1f%% (--min-functions)", got, want))
+		} else {
+			successParts = append(successParts, fmt.Sprintf("%.1f%% funcs", got))
+		}
 	}
 
-	fmt.Fprintf(stdout, "plumb: coverage ok (%.1f%% stmts)\n", got)
+	// Collect failures rather than return on the first one: two
+	// failed thresholds give two stderr lines, statements first, and
+	// one exit code (D-24).
+	if len(failures) > 0 {
+		for _, f := range failures {
+			fmt.Fprintln(stderr, f)
+		}
+		return newExitError(3, "coverage below threshold")
+	}
+
+	// Build the success line from the metrics the caller asked for,
+	// and from those only.
+	fmt.Fprintf(stdout, "plumb: coverage ok (%s)\n", strings.Join(successParts, ", "))
 	return nil
 }
 
-// addCheckFlags registers the threshold flags check reads. Only
-// --min-statements exists in this plan; a later plan adds
-// --min-functions into the same helper, so the return keeps a second
-// slot that this task's caller ignores.
+// addCheckFlags registers the threshold flags check reads.
 func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs *float64) {
-	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percentage required")
-	return minStmts, nil
+	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
+	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
+	return minStmts, minFuncs
+}
+
+// sourcePath resolves a profile entry to a disk path and refuses one
+// that would read outside the module root. profile.Resolve trims a
+// prefix and joins; it does not clean a path that carries parent-
+// directory segments, so this guard runs before any read (T-02-02).
+func sourcePath(fileName, modulePath, moduleRoot string) (string, error) {
+	diskPath := profile.Resolve(fileName, modulePath, moduleRoot)
+	rel, err := filepath.Rel(moduleRoot, diskPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%s: path leaves the module root", fileName)
+	}
+	return diskPath, nil
+}
+
+// funcTotals walks the source tree behind every parsed profile and
+// returns the module function totals. Unlike report.Build, it never
+// drops a file it cannot read or parse: it returns the error instead,
+// because a gate that quietly shrinks its own denominator can report
+// a higher percentage from less code, which is the exact failure
+// D-18 rejects.
+func funcTotals(profiles []*profile.ParsedProfile, modulePath, moduleRoot string) (covered, total int, err error) {
+	for _, pp := range profiles {
+		var diskPath string
+		diskPath, err = sourcePath(pp.FileName, modulePath, moduleRoot)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		var funcs []profile.AnnotatedFunc
+		funcs, err = profile.WalkFuncs(pp.CoverProfile, diskPath)
+		if err != nil {
+			return 0, 0, fmt.Errorf("reading source for %s: %w", pp.FileName, err)
+		}
+
+		for _, f := range funcs {
+			total++
+			if f.Count > 0 {
+				covered++
+			}
+		}
+	}
+	return covered, total, nil
 }
 
 // truncPct truncates a percentage to one decimal place. A bare %.1f

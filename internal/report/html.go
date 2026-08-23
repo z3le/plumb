@@ -43,7 +43,7 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 
 	r := &Report{Title: title}
 
-	var totalCovered, totalUncovered int
+	var totalStmtCovered, totalStmtTotal int
 	var totalFuncsCovered, totalFuncsTotal int
 
 	for _, pp := range profiles {
@@ -65,18 +65,13 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 			return nil, fmt.Errorf("highlighting %s: %w", pp.FileName, err)
 		}
 
-		stmtPct := profile.StmtPct(lines)
+		stmtPct := profile.StmtPct(pp.CoverProfile)
 		funcPct := profile.FuncPct(funcs)
 
 		// accumulate totals
-		for _, l := range lines {
-			switch l.Status {
-			case profile.Covered:
-				totalCovered++
-			case profile.Uncovered:
-				totalUncovered++
-			}
-		}
+		stmtCovered, stmtTotal := profile.StmtTotals(pp.CoverProfile)
+		totalStmtCovered += stmtCovered
+		totalStmtTotal += stmtTotal
 		for _, f := range funcs {
 			totalFuncsTotal++
 			if f.Count > 0 {
@@ -95,9 +90,8 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 		})
 	}
 
-	total := totalCovered + totalUncovered
-	if total > 0 {
-		r.StmtPct = float64(totalCovered) / float64(total) * 100
+	if totalStmtTotal > 0 {
+		r.StmtPct = float64(totalStmtCovered) / float64(totalStmtTotal) * 100
 	}
 	if totalFuncsTotal > 0 {
 		r.FuncPct = float64(totalFuncsCovered) / float64(totalFuncsTotal) * 100

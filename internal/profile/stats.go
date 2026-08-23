@@ -35,19 +35,12 @@ func StmtTotalsAll(profiles []*ParsedProfile) (covered, total int) {
 	return covered, total
 }
 
-// StmtPct returns the statement coverage percentage for a set of annotated lines.
-// Uncoverable lines (blank lines, comments, declarations) are excluded.
-func StmtPct(lines []AnnotatedLine) float64 {
-	var covered, total int
-	for _, l := range lines {
-		if l.Status == Uncoverable {
-			continue
-		}
-		total++
-		if l.Status == Covered {
-			covered++
-		}
-	}
+// StmtPct returns the NumStmt-weighted statement coverage percentage
+// for one profile, the same weight go tool cover -func applies. It
+// wraps StmtTotals so report and check read one number for the same
+// profile. Returns 0 for a nil profile or a profile with no block.
+func StmtPct(p *cover.Profile) float64 {
+	covered, total := StmtTotals(p)
 	if total == 0 {
 		return 0
 	}

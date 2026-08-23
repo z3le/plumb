@@ -92,11 +92,16 @@ func versionCmd(args []string, stdout, stderr io.Writer) error {
 // exit code. The exit-code table is fixed for the whole phase:
 //
 //	0 — the command succeeded, or the caller asked for help
-//	1 — the command returned an ordinary error
-//	2 — a usage error: no argument, an unknown command, or a coded
-//	    error with code 2
+//	1 — the command returned an ordinary error, which includes a
+//	    profile that measures no coverable statement
+//	2 — a usage error: no argument, an unknown command, an unknown
+//	    flag, a flag value the command cannot read, a second file
+//	    name, or a threshold outside 0 to 100
 //	3 — a coded error for a coverage threshold that the profile did
 //	    not meet
+//
+// A pipeline reads 2 as "the command was called wrong" and 3 as
+// "coverage fell", so every wrong call answers with 2.
 func dispatch(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)

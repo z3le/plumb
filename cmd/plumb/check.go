@@ -39,7 +39,7 @@ Examples:
 
 	minStmts, minFuncs := addCheckFlags(fs)
 
-	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -72,8 +72,16 @@ Examples:
 	}
 
 	profilePath := ".plumb/coverage.out"
-	if len(fs.Args()) > 0 {
-		profilePath = fs.Args()[0]
+	if fs.NArg() > 0 {
+		profilePath = fs.Arg(0)
+	}
+	// A second positional argument is a mistyped invocation. Fail
+	// loudly: a silently dropped argument lets a gate report a result
+	// for a profile the caller did not name.
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "plumb: unexpected argument %q, want one profile\n", fs.Arg(1))
+		fs.Usage()
+		return newExitError(2, "unexpected argument")
 	}
 
 	profiles, err := profile.Parse(profilePath)

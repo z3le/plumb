@@ -42,7 +42,7 @@ Examples:
 
 	open, out, title := addReportFlags(fs)
 
-	if err := fs.Parse(reorderArgs(fs, before)); err != nil {
+	if err := parseFlags(fs, before); err != nil {
 		return err
 	}
 

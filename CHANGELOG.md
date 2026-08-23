@@ -3,6 +3,16 @@
 - Add `plumb check`, which fails a build when coverage falls below a threshold.
   `--min-statements` reads the profile only. `--min-functions` reads your source
   files as well. A missed threshold exits 3.
+- Refuse a source file that a link inside the module root points outside it.
+  The earlier check compared the path as text, so it read the link name and not
+  its target. `plumb report` disclosed the contents of the linked file.
+- Keep the report when one source file is absent. `plumb report` failed the
+  whole run before. It now names each file it skips and renders the rest.
+- A wrong call now exits 2, not 1: an unknown flag, a flag value the command
+  cannot read, or a second file name. A pipeline reads 2 as "called wrong" and
+  3 as "coverage fell". `plumb check` and `plumb report` also rejected a second
+  file name silently before.
+- Print a flag error once. Each command printed it twice.
 - Fix `plumb report` and `plumb run`, which ignored a flag that came after the
   file name. `plumb report coverage.out --out report.html` wrote `coverage.html`
   and gave no warning. Each command now reads a flag in either position.

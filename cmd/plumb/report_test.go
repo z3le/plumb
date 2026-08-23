@@ -26,16 +26,22 @@ func TestReportHelpExitsZero(t *testing.T) {
 	require.Equal(t, 1, strings.Count(stderr.String(), "Usage: plumb report"))
 }
 
-// TestReportUnknownFlag proves an ordinary flag-parse error is a
-// command error under the D-10 table: it returns 1, not 2, because
-// only dispatch's own usage errors return 2.
+// TestReportUnknownFlag proves a flag-parse error is a usage error:
+// it returns 2. This widens the D-10 table, which gave 1 and kept 2
+// for a usage error dispatch raised itself. A pipeline reads 2 as
+// "the command was called wrong" and 3 as "coverage fell", so every
+// wrong call must answer with the same number.
+//
+// The message appears once: the flag package writes it, and dispatch
+// writes nothing more for a coded error.
 func TestReportUnknownFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	code := dispatch([]string{"report", "--nope"}, &stdout, &stderr)
-	require.Equal(t, 1, code)
+	require.Equal(t, 2, code)
 	require.Contains(t, stderr.String(), "nope")
 	require.Equal(t, 1, strings.Count(stderr.String(), "Usage: plumb report"))
+	require.Equal(t, 1, strings.Count(stderr.String(), "not defined"))
 }
 
 // TestReportMissingProfile proves the error path returns the

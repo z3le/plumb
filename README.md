@@ -106,6 +106,14 @@ plumb check [flags] [profile]
 
 The profile defaults to `.plumb/coverage.out`. A missed threshold exits 3.
 
+Every command accepts a flag before or after the file name. These two commands
+do the same thing:
+
+```sh
+plumb report --out report.html coverage.out
+plumb report coverage.out --out report.html
+```
+
 ## What the report shows
 
 - File list sortable by statement %, function %, or name

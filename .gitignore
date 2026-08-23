@@ -24,6 +24,7 @@ profile.cov
 # vendor/
 .claude
 .planning
+.gsd
 
 # Go workspace file
 go.work

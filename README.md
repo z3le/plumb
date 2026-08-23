@@ -44,6 +44,7 @@ plumb run ./internal/... -- -race -count=1
 ```
   run      Run tests with coverage and render the report
   report   Render a coverage profile as an HTML report
+  check    Check coverage against a minimum threshold
   version  Print the plumb version
   help     Show this help text
 ```

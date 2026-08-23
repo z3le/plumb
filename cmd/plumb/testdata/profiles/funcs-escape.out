@@ -1,0 +1,2 @@
+mode: set
+example.com/fixturemod/../../../../etc/passwd:3.13,4.2 1 1

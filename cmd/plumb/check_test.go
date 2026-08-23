@@ -4,6 +4,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,54 +13,294 @@ import (
 )
 
 const (
-	halfProfile   = "testdata/profiles/half.out"
-	trickyProfile = "testdata/profiles/tricky.out"
+	halfProfile           = "testdata/profiles/half.out"
+	trickyProfile         = "testdata/profiles/tricky.out"
+	zeroProfile           = "testdata/profiles/zero.out"
+	fullProfile           = "testdata/profiles/full.out"
+	emptyProfile          = "testdata/profiles/empty.out"
+	testonlyProfile       = "testdata/profiles/testonly.out"
+	zerostmtProfile       = "testdata/profiles/zerostmt.out"
+	funcsHalfProfile      = "testdata/profiles/funcs-half.out"
+	funcsTwoThirdsProfile = "testdata/profiles/funcs-two-thirds.out"
+	funcsMissingProfile   = "testdata/profiles/funcs-missing.out"
+	funcsBrokenProfile    = "testdata/profiles/funcs-broken.out"
+	funcsEscapeProfile    = "testdata/profiles/funcs-escape.out"
 )
 
-// TestCheckPassesAtThreshold proves a profile at the threshold exits
-// 0 and prints the success line to stdout only.
-func TestCheckPassesAtThreshold(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-
-	code := dispatch([]string{"check", halfProfile, "--min-statements", "50"}, &stdout, &stderr)
-	require.Equal(t, 0, code)
-	require.Equal(t, "plumb: coverage ok (50.0% stmts)\n", stdout.String())
-	require.Empty(t, stderr.String())
+// TestCheckStatementThresholds covers the statement-only boundary and
+// the truncate-not-round rule across the fixture set (CHK-01, D-20).
+func TestCheckStatementThresholds(t *testing.T) {
+	tests := []struct {
+		name       string
+		profile    string
+		minStmts   string
+		wantCode   int
+		wantStderr string
+		notStderr  string
+	}{
+		{name: "half at threshold passes", profile: halfProfile, minStmts: "50", wantCode: 0},
+		{name: "half one step above fails", profile: halfProfile, minStmts: "50.1", wantCode: 3, wantStderr: "50.0%, need 50.1%"},
+		{name: "tricky truncates rather than rounds", profile: trickyProfile, minStmts: "80", wantCode: 3, wantStderr: "79.9%, need 80.0%", notStderr: "80.0%, need 80.0%"},
+		{name: "zero above zero fails", profile: zeroProfile, minStmts: "1", wantCode: 3, wantStderr: "0.0%, need 1.0%"},
+		{name: "zero at zero passes", profile: zeroProfile, minStmts: "0", wantCode: 0},
+		{name: "full at 100 passes", profile: fullProfile, minStmts: "100", wantCode: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := dispatch([]string{"check", tc.profile, "--min-statements", tc.minStmts}, &stdout, &stderr)
+			require.Equal(t, tc.wantCode, code, "stderr=%s", stderr.String())
+			if tc.wantCode == 0 {
+				require.Empty(t, stderr.String())
+			}
+			if tc.wantStderr != "" {
+				require.Contains(t, stderr.String(), tc.wantStderr)
+			}
+			if tc.notStderr != "" {
+				require.NotContains(t, stderr.String(), tc.notStderr)
+			}
+		})
+	}
 }
 
-// TestCheckFailsOneStepAboveThreshold proves CHK-01's boundary: one
-// step above the measured value fails, and stdout stays empty.
-func TestCheckFailsOneStepAboveThreshold(t *testing.T) {
-	var stdout, stderr bytes.Buffer
+// TestCheckUsageErrors proves D-33 and D-35: no threshold flag, and a
+// threshold value outside 0 to 100 (including NaN and Inf), are usage
+// errors that exit 2 and name the offending flag.
+func TestCheckUsageErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantStderr []string
+	}{
+		{name: "no threshold flag", args: []string{"check", halfProfile}, wantStderr: []string{"--min-statements", "--min-functions"}},
+		{name: "min-statements below range", args: []string{"check", halfProfile, "--min-statements", "-0.1"}, wantStderr: []string{"--min-statements"}},
+		{name: "min-statements above range", args: []string{"check", halfProfile, "--min-statements", "100.1"}, wantStderr: []string{"--min-statements"}},
+		{name: "min-statements NaN", args: []string{"check", halfProfile, "--min-statements", "NaN"}, wantStderr: []string{"--min-statements"}},
+		{name: "min-statements Inf", args: []string{"check", halfProfile, "--min-statements", "Inf"}, wantStderr: []string{"--min-statements"}},
+		{name: "min-functions below range", args: []string{"check", halfProfile, "--min-functions", "-0.1"}, wantStderr: []string{"--min-functions"}},
+		{name: "min-functions above range", args: []string{"check", halfProfile, "--min-functions", "100.1"}, wantStderr: []string{"--min-functions"}},
+		{name: "min-functions NaN", args: []string{"check", halfProfile, "--min-functions", "NaN"}, wantStderr: []string{"--min-functions"}},
+		{name: "min-functions Inf", args: []string{"check", halfProfile, "--min-functions", "Inf"}, wantStderr: []string{"--min-functions"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := dispatch(tc.args, &stdout, &stderr)
+			require.Equal(t, 2, code)
+			for _, want := range tc.wantStderr {
+				require.Contains(t, stderr.String(), want)
+			}
+		})
+	}
+}
 
-	code := dispatch([]string{"check", halfProfile, "--min-statements", "50.1"}, &stdout, &stderr)
+// TestCheckEmptyProfile proves D-19: a profile that measures no
+// coverable statement fails the run by name, whichever shape produced
+// the empty measurement.
+func TestCheckEmptyProfile(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile string
+	}{
+		{name: "mode line and no block", profile: emptyProfile},
+		{name: "only a _test.go entry", profile: testonlyProfile},
+		{name: "every block has NumStmt zero", profile: zerostmtProfile},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := dispatch([]string{"check", tc.profile, "--min-statements", "0"}, &stdout, &stderr)
+			require.Equal(t, 1, code)
+			require.Empty(t, stdout.String())
+			require.Contains(t, stderr.String(), filepath.Base(tc.profile))
+		})
+	}
+}
+
+// TestCheckFunctionThresholds proves CHK-02: --min-functions compares
+// the module function total, computed by walking the source tree
+// behind the profile.
+func TestCheckFunctionThresholds(t *testing.T) {
+	tests := []struct {
+		name       string
+		profile    string
+		minFuncs   string
+		wantCode   int
+		wantStderr string
+	}{
+		{name: "funcs-half at 50 passes", profile: funcsHalfProfile, minFuncs: "50", wantCode: 0},
+		{name: "funcs-half one step above fails", profile: funcsHalfProfile, minFuncs: "50.1", wantCode: 3, wantStderr: "50.0%, need 50.1%"},
+		{name: "funcs-two-thirds truncates rather than rounds", profile: funcsTwoThirdsProfile, minFuncs: "66.7", wantCode: 3, wantStderr: "66.6%, need 66.7%"},
+		{name: "funcs-two-thirds at 66.6 passes", profile: funcsTwoThirdsProfile, minFuncs: "66.6", wantCode: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			abs, err := filepath.Abs(tc.profile)
+			require.NoError(t, err)
+			copyFixture(t)
+
+			var stdout, stderr bytes.Buffer
+			code := dispatch([]string{"check", abs, "--min-functions", tc.minFuncs}, &stdout, &stderr)
+			require.Equal(t, tc.wantCode, code, "stderr=%s", stderr.String())
+			if tc.wantCode == 0 {
+				require.Empty(t, stderr.String())
+			}
+			if tc.wantStderr != "" {
+				require.Contains(t, stderr.String(), tc.wantStderr)
+			}
+		})
+	}
+}
+
+// TestCheckBothThresholdsFail proves D-24: two failed thresholds give
+// two stderr lines, statements first, and the lines never merge.
+func TestCheckBothThresholdsFail(t *testing.T) {
+	abs, err := filepath.Abs(funcsHalfProfile)
+	require.NoError(t, err)
+	copyFixture(t)
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", abs, "--min-statements", "80", "--min-functions", "90"}, &stdout, &stderr)
 	require.Equal(t, 3, code)
 	require.Empty(t, stdout.String())
-	require.Equal(t, "plumb: statement coverage 50.0%, need 50.1% (--min-statements)\n", stderr.String())
+
+	lines := strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n")
+	require.Len(t, lines, 2)
+	require.Contains(t, lines[0], "--min-statements")
+	require.Contains(t, lines[1], "--min-functions")
+	require.NotEqual(t, lines[0], lines[1])
 }
 
-// TestCheckTruncatesRatherThanRounds proves D-20: check compares the
-// raw percentage and truncates the printed number, so a value that a
-// bare %.1f would round up to the threshold still reads as a miss.
-func TestCheckTruncatesRatherThanRounds(t *testing.T) {
-	var stdout, stderr bytes.Buffer
+// TestCheckSourceErrors proves D-18 and T-02-02: a source file the
+// run cannot read, cannot parse, or that resolves outside the module
+// root fails the run by name, and an escaping path is never read.
+func TestCheckSourceErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		profile      string
+		setup        func(t *testing.T, dir string)
+		wantInStderr string
+	}{
+		{
+			name:         "missing source file",
+			profile:      funcsMissingProfile,
+			wantInStderr: "missing/gone.go",
+		},
+		{
+			name:         "escaping path",
+			profile:      funcsEscapeProfile,
+			wantInStderr: "etc/passwd",
+		},
+		{
+			name:    "broken source file",
+			profile: funcsBrokenProfile,
+			setup: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "calc", "broken.go"), []byte("package calc\n\nfunc broken( {\n"), 0o644))
+			},
+			wantInStderr: "calc/broken.go",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			abs, err := filepath.Abs(tc.profile)
+			require.NoError(t, err)
+			dir := copyFixture(t)
+			if tc.setup != nil {
+				tc.setup(t, dir)
+			}
 
-	code := dispatch([]string{"check", trickyProfile, "--min-statements", "80"}, &stdout, &stderr)
-	require.Equal(t, 3, code)
-	require.Contains(t, stderr.String(), "79.9%, need 80.0%")
-	require.NotContains(t, stderr.String(), "80.0%, need 80.0%")
+			var stdout, stderr bytes.Buffer
+			code := dispatch([]string{"check", abs, "--min-functions", "0"}, &stdout, &stderr)
+			require.Equal(t, 1, code)
+			require.Contains(t, stderr.String(), tc.wantInStderr)
+
+			if tc.name == "escaping path" {
+				// Proves the run refused the path rather than read it.
+				if passwd, err := os.ReadFile("/etc/passwd"); err == nil && len(passwd) > 0 {
+					require.NotContains(t, stderr.String(), string(passwd))
+				}
+			}
+		})
+	}
 }
 
-// TestCheckMissingThresholdIsUsageError proves D-33: check with no
-// threshold flag is a usage error that exits 2 and names the flag it
-// wants, rather than passing silently.
-func TestCheckMissingThresholdIsUsageError(t *testing.T) {
-	var stdout, stderr bytes.Buffer
+// TestCheckStatementOnlyNeedsNoSourceTree proves the D-18 split: a
+// statement-only check runs against a downloaded artifact, with no
+// go.mod and no source tree present.
+func TestCheckStatementOnlyNeedsNoSourceTree(t *testing.T) {
+	abs, err := filepath.Abs(halfProfile)
+	require.NoError(t, err)
+	t.Chdir(t.TempDir())
 
-	code := dispatch([]string{"check", halfProfile}, &stdout, &stderr)
-	require.Equal(t, 2, code)
-	require.Contains(t, stderr.String(), "--min-statements")
-	require.Empty(t, stdout.String())
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", abs, "--min-statements", "50"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+}
+
+// TestCheckDefaultProfilePath proves the D-23 default: check with no
+// positional argument reads .plumb/coverage.out.
+func TestCheckDefaultProfilePath(t *testing.T) {
+	abs, err := filepath.Abs(halfProfile)
+	require.NoError(t, err)
+	src, err := os.ReadFile(abs)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".plumb"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".plumb", "coverage.out"), src, 0o644))
+	t.Chdir(dir)
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--min-statements", "50"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+}
+
+// firstNonASCIIByte walks s and reports the first byte that is an
+// escape byte (0x1b) or that sits at or above 0x80, so a failing
+// assertion names the offending byte.
+func firstNonASCIIByte(s string) (b byte, index int, found bool) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b || c >= 0x80 {
+			return c, i, true
+		}
+	}
+	return 0, 0, false
+}
+
+// TestCheckOutputIsPlainASCII is the CHK-05 backstop: D-26 keeps
+// plumb free of colour by construction, and this test keeps that true
+// as the code changes.
+func TestCheckOutputIsPlainASCII(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		needsSource bool
+	}{
+		{name: "success", args: []string{"check", halfProfile, "--min-statements", "50"}},
+		{name: "statement failure", args: []string{"check", halfProfile, "--min-statements", "50.1"}},
+		{name: "function failure", args: []string{"check", funcsHalfProfile, "--min-functions", "50.1"}, needsSource: true},
+		{name: "usage error", args: []string{"check", halfProfile}},
+		{name: "empty profile error", args: []string{"check", emptyProfile, "--min-statements", "0"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := tc.args
+			if tc.needsSource {
+				abs, err := filepath.Abs(args[1])
+				require.NoError(t, err)
+				copyFixture(t)
+				args = append([]string{args[0], abs}, args[2:]...)
+			}
+
+			var stdout, stderr bytes.Buffer
+			dispatch(args, &stdout, &stderr)
+			combined := stdout.String() + stderr.String()
+			if b, i, bad := firstNonASCIIByte(combined); bad {
+				t.Fatalf("output holds a non-ASCII byte 0x%02x at index %d: %q", b, i, combined)
+			}
+		})
+	}
 }
 
 // TestCheckHelpExitsZero is the CLI-03 regression test for check,
@@ -106,12 +348,11 @@ func TestCheckCodedErrorSurvivesWrapping(t *testing.T) {
 }
 
 // TestCheckDispatchReturnsCodeThroughWrappedError proves the same
-// rule end to end: checkCmd wraps its own coded error for context,
-// and dispatch must still return the code the error carries rather
-// than falling back to the generic 1.
+// rule end to end: checkCmd's failure path resolves to its own code,
+// not the generic 1 fallback.
 func TestCheckDispatchReturnsCodeThroughWrappedError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	code := dispatch([]string{"check", halfProfile, "--min-statements", "50.1"}, &stdout, &stderr)
-	require.Equal(t, 3, code, "a wrapped *exitError must still resolve to its own code, not the generic 1 fallback")
+	require.Equal(t, 3, code, "a coded error must resolve to its own code, not the generic 1 fallback")
 }

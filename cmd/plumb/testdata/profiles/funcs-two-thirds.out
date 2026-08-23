@@ -1,0 +1,4 @@
+mode: set
+example.com/fixturemod/calc/calc.go:7.24,9.2 1 1
+example.com/fixturemod/calc/calc.go:12.31,14.2 1 0
+example.com/fixturemod/mul/mul.go:7.22,9.2 1 1

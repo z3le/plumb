@@ -1,3 +1,28 @@
+## v0.1.3 (2026-08-23)
+
+- fix(cli): exit 2 for every wrong call, and print the error once
+
+Each command returned the flag package's parse error unwrapped, so
+dispatch printed the message a second time and exited 1. A caller who
+typed an unknown flag got the same code as a run that failed for an
+ordinary reason.
+
+parseFlags wraps a parse failure in a coded error. dispatch prints
+nothing for a coded error, so the message the flag package already
+wrote is the only one.
+
+The code is 2. This widens D-10, which gave a flag-parse error 1 and
+kept 2 for a usage error dispatch raised itself. A pipeline reads 2
+as "the command was called wrong" and 3 as "coverage fell", so every
+wrong call now answers with 2: an unknown flag, a value the command
+cannot read, a second file name, or a threshold outside 0 to 100.
+
+check and report also reject a second file name, which they dropped
+without a word before. run already did.
+
+reorderArgs no longer takes the next token as the value of a flag it
+does not know, which could swallow a "--" terminator.
+
 ## Unreleased
 
 - Add `plumb check`, which fails a build when coverage falls below a threshold.

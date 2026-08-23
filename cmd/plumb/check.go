@@ -60,6 +60,19 @@ Examples:
 		return newExitError(2, "no coverage threshold given")
 	}
 
+	// Check min-statements first, then min-functions, and report the
+	// first rejected value only (D-35).
+	if given["min-statements"] && !validThreshold(*minStmts) {
+		fmt.Fprintf(stderr, "plumb: --min-statements value %v is out of range, want 0 to 100\n", *minStmts)
+		fs.Usage()
+		return newExitError(2, "threshold out of range")
+	}
+	if given["min-functions"] && !validThreshold(*minFuncs) {
+		fmt.Fprintf(stderr, "plumb: --min-functions value %v is out of range, want 0 to 100\n", *minFuncs)
+		fs.Usage()
+		return newExitError(2, "threshold out of range")
+	}
+
 	profilePath := ".plumb/coverage.out"
 	if len(fs.Args()) > 0 {
 		profilePath = fs.Args()[0]
@@ -70,7 +83,15 @@ Examples:
 		return fmt.Errorf("parsing profile: %w", err)
 	}
 
+	// A profile that measures no coverable statement cannot answer
+	// either question, whichever flags the caller set (D-19). This is
+	// a plain error, not a coded one: the run produced no measurement
+	// rather than a coverage drop, and a pipeline must be able to
+	// tell the two apart (D-29).
 	stmtCovered, stmtTotal := profile.StmtTotalsAll(profiles)
+	if stmtTotal == 0 {
+		return fmt.Errorf("%s measures no coverable statement", profilePath)
+	}
 
 	var failures, successParts []string
 
@@ -143,6 +164,15 @@ func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs *float64) {
 	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
 	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
 	return minStmts, minFuncs
+}
+
+// validThreshold reports whether v lies in the closed range 0 to
+// 100. Written as a single accepting condition rather than two
+// separate rejecting comparisons: every comparison against NaN is
+// false, so two negated comparisons would let a NaN threshold pass
+// silently (D-35).
+func validThreshold(v float64) bool {
+	return v >= 0 && v <= 100
 }
 
 // sourcePath resolves a profile entry to a disk path and refuses one

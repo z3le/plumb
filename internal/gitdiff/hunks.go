@@ -30,6 +30,12 @@ func ParseHunks(diff string) (map[string][]int, error) {
 
 	for _, line := range strings.Split(diff, "\n") {
 		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			// A header block with no hunk — a mode-only change or a
+			// 100%-similarity rename — must contribute nothing rather
+			// than attach its absence to the file before it.
+			current = ""
+			fileGone = false
 		case strings.HasPrefix(line, "+++ "):
 			path := strings.TrimPrefix(line, "+++ ")
 			if path == "/dev/null" {

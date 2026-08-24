@@ -2,14 +2,12 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"math"
 	"strings"
 
-	"github.com/z3le/plumb/internal/gitdiff"
 	"github.com/z3le/plumb/internal/profile"
 )
 
@@ -153,29 +151,15 @@ Examples:
 	// --diff-base alone also turns diff mode on (D-40), so either flag
 	// reaches this block. 03-01 task 1 requires --diff-base to be
 	// given explicitly; 03-02 adds the default reference.
-	if given["min-diff"] || given["diff-base"] {
+	if given["min-diff"] || given[diffBaseFlagName] {
 		modulePath, moduleRoot, err := resolveModule()
 		if err != nil {
 			return err
 		}
 
-		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase)
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase, profilePath)
 		if err != nil {
-			// A reference the caller typed does not resolve, or looks
-			// like a flag: the caller's mistake, so it exits 2 the same
-			// way the out-of-range threshold guard above does (D-49).
-			var badRef *gitdiff.BadRefError
-			if errors.As(err, &badRef) {
-				fmt.Fprintf(stderr, "plumb: %v\n", badRef)
-				return newExitError(2, "diff-base reference does not resolve")
-			}
-			// Running outside a git repository, a shallow clone with no
-			// common ancestor, and an exhausted default-reference chain
-			// are environment failures, not a caller mistake: plumb was
-			// called correctly (D-49). Each is a plain wrapped error and
-			// exits 1 through dispatch's default path, with no change
-			// needed here or in dispatch.
-			return err
+			return mapDiffCoverageError(err, stderr)
 		}
 
 		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
@@ -221,7 +205,7 @@ func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs, minDiff *float64, diff
 	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
 	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
 	minDiff = fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)")
-	diffBase = fs.String("diff-base", "", "git reference to diff against")
+	diffBase = addDiffBaseFlag(fs)
 	return minStmts, minFuncs, minDiff, diffBase
 }
 

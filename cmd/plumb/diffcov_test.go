@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -203,4 +204,83 @@ func TestCheckMinDiffDefaultBaseResolves(t *testing.T) {
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())
 	require.Contains(t, stdout.String(), "plumb: diff against main (merge base")
 	require.Contains(t, stdout.String(), "50.0% diff")
+}
+
+// splitMulLine turns Double's single-statement body into two
+// statements, the same shape splitCoveredLine gives calc.go, so a
+// second file can carry a real coverable changed line.
+func splitMulLine(t *testing.T, mulPath string) {
+	t.Helper()
+	src, err := os.ReadFile(mulPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src),
+		"\treturn n * 2\n",
+		"\tresult := n * 2\n\treturn result\n",
+		1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the line this edit replaces")
+	require.NoError(t, os.WriteFile(mulPath, []byte(edited), 0o644))
+}
+
+// TestDiffCoverageStaleness proves D-45: a changed source file whose
+// modification time is after the profile's produces one warning entry
+// naming it, the percentage still prints beside it, and a file older
+// than the profile produces no entry. Modification times are set
+// explicitly with os.Chtimes, not left to the clock, so the test is
+// deterministic on a filesystem with coarse timestamps.
+func TestDiffCoverageStaleness(t *testing.T) {
+	tests := []struct {
+		name       string
+		staleFiles []string // "calc" and/or "mul"
+		wantStale  int
+	}{
+		{name: "one stale file", staleFiles: []string{"calc"}, wantStale: 1},
+		{name: "two stale files", staleFiles: []string{"calc", "mul"}, wantStale: 2},
+		{name: "no stale file", staleFiles: nil, wantStale: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base := initFixtureRepo(t)
+			calcPath := filepath.Join(dir, "calc", "calc.go")
+			mulPath := filepath.Join(dir, "mul", "mul.go")
+			splitCoveredLine(t, calcPath)
+			splitMulLine(t, mulPath)
+
+			var runStdout, runStderr bytes.Buffer
+			require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+			profilePath := filepath.Join(dir, ".plumb", "coverage.out")
+			reference := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+			require.NoError(t, os.Chtimes(profilePath, reference, reference))
+			require.NoError(t, os.Chtimes(calcPath, reference.Add(-time.Hour), reference.Add(-time.Hour)))
+			require.NoError(t, os.Chtimes(mulPath, reference.Add(-time.Hour), reference.Add(-time.Hour)))
+
+			stalePaths := map[string]string{"calc": calcPath, "mul": mulPath}
+			for _, name := range tc.staleFiles {
+				p := stalePaths[name]
+				require.NoError(t, os.Chtimes(p, reference.Add(time.Hour), reference.Add(time.Hour)))
+			}
+
+			var stdout, stderr bytes.Buffer
+			code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "0"}, &stdout, &stderr)
+			require.Equal(t, 0, code, "stderr=%s", stderr.String())
+
+			gotStale := strings.Count(stderr.String(), "newer than the profile")
+			require.Equal(t, tc.wantStale, gotStale, "stderr=%s", stderr.String())
+			require.Regexp(t, `[0-9]+\.[0-9]% diff`, stdout.String())
+		})
+	}
+}
+
+// TestRunDiffNoStaleness proves D-41: run --diff writes the profile
+// after the sources it reads, so the D-45 staleness warning can never
+// fire on this path.
+func TestRunDiffNoStaleness(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"run", "--diff", "--diff-base", base}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.NotContains(t, stderr.String(), "newer than the profile")
 }

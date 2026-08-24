@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -483,4 +484,89 @@ func TestCheckMinDiffFileNotInProfile(t *testing.T) {
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())
 	require.Contains(t, stderr.String(), "calc/extra.go: not in the coverage profile")
 	require.Contains(t, stdout.String(), "100.0% diff")
+}
+
+// TestCheckDiffBaseBadRefExitsTwo proves D-49: a --diff-base value
+// that does not resolve is the caller's mistake, so it exits 2 and
+// repeats git's own message.
+func TestCheckDiffBaseBadRefExitsTwo(t *testing.T) {
+	initFixtureRepo(t)
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--diff-base", "nosuchref", "--min-diff", "0"}, &stdout, &stderr)
+	require.Equal(t, 2, code, "stderr=%s", stderr.String())
+	require.Contains(t, stderr.String(), "nosuchref")
+}
+
+// TestCheckDiffBaseHyphenGuardExitsTwo proves T-03-01: a --diff-base
+// value that begins with a hyphen is refused before any git process
+// starts, so a value that looks like a flag can never reach one.
+func TestCheckDiffBaseHyphenGuardExitsTwo(t *testing.T) {
+	initFixtureRepo(t)
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--min-diff", "0", "--diff-base", "--upload-pack=x"}, &stdout, &stderr)
+	require.Equal(t, 2, code, "stderr=%s", stderr.String())
+	require.Contains(t, stderr.String(), "hyphen")
+}
+
+// TestCheckMinDiffOutsideGitRepo proves D-49 and DIFF-07: a source
+// tree with no .git directory at all is a correctly-called command
+// the environment cannot answer, so it exits 1 and names the cause.
+func TestCheckMinDiffOutsideGitRepo(t *testing.T) {
+	copyFixture(t) // has go.mod, but was never git-initialized
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--min-diff", "0"}, &stdout, &stderr)
+	require.Equal(t, 1, code, "stdout=%s", stdout.String())
+	require.Contains(t, stderr.String(), "not a git repository")
+}
+
+// TestCheckMinDiffShallowCloneNamesFetchDepth proves the RESEARCH.md
+// Open question 3 finding end to end: a depth-1, --no-single-branch
+// clone whose --diff-base resolves but shares no common ancestor
+// within the fetched history exits 1, and its stderr names
+// fetch-depth: 0 — the fix git itself never prints, because git
+// writes nothing at all for this failure.
+func TestCheckMinDiffShallowCloneNamesFetchDepth(t *testing.T) {
+	fixtureSrc, err := filepath.Abs("testdata/fixturemod")
+	require.NoError(t, err)
+
+	srcDir := t.TempDir()
+	require.NoError(t, os.CopyFS(srcDir, os.DirFS(fixtureSrc)))
+	t.Chdir(srcDir)
+	commitAll(t, "base")
+	branch := strings.TrimSpace(runGitOutput(t, "rev-parse", "--abbrev-ref", "HEAD"))
+
+	runGit(t, "checkout", "-q", "-b", "feature")
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "calc", "feature.go"), []byte("package calc\n\n// Feature is new work under test.\nfunc Feature(n int) int {\n\treturn n\n}\n"), 0o644))
+	runGit(t, "add", "-A")
+	runGit(t, "commit", "-q", "-m", "feature commit")
+	runGit(t, "checkout", "-q", branch)
+
+	cloneDir := t.TempDir()
+	// A local clone silently ignores --depth unless the source is a
+	// file:// URL; a bare path clones full history with no warning.
+	cmd := exec.Command("git", "clone", "-q", "--depth", "1", "--no-single-branch", "file://"+srcDir, cloneDir)
+	out, cloneErr := cmd.CombinedOutput()
+	require.NoError(t, cloneErr, "git clone --depth 1 --no-single-branch: %s", out)
+
+	t.Chdir(cloneDir)
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--min-diff", "0", "--diff-base", "origin/feature"}, &stdout, &stderr)
+	require.Equal(t, 1, code, "stdout=%s", stdout.String())
+	require.Contains(t, stderr.String(), "fetch-depth: 0")
 }

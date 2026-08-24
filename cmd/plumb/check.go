@@ -37,7 +37,7 @@ Examples:
 `)
 	}
 
-	minStmts, minFuncs := addCheckFlags(fs)
+	minStmts, minFuncs, minDiff, diffBase := addCheckFlags(fs)
 
 	if err := parseFlags(fs, args); err != nil {
 		return err
@@ -52,7 +52,11 @@ Examples:
 		given[f.Name] = true
 	})
 
-	if !given["min-statements"] && !given["min-functions"] {
+	// --min-diff also satisfies this guard (D-39): a caller who wants
+	// only the diff percentage runs "plumb check --min-diff 0" with no
+	// other threshold. The stderr sentence keeps naming the first two
+	// flags for now; 03-01 task 3 renames it to list all three.
+	if !given["min-statements"] && !given["min-functions"] && !given["min-diff"] {
 		fmt.Fprint(stderr, "plumb: no coverage threshold given, want --min-statements or --min-functions\n")
 		fs.Usage()
 		return newExitError(2, "no coverage threshold given")
@@ -140,6 +144,42 @@ Examples:
 		}
 	}
 
+	// --diff-base alone also turns diff mode on (D-40), so either flag
+	// reaches this block. 03-01 task 1 requires --diff-base to be
+	// given explicitly; 03-02 adds the default reference.
+	if given["min-diff"] || given["diff-base"] {
+		modulePath, moduleRoot, err := resolveModule()
+		if err != nil {
+			return err
+		}
+
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase)
+		if err != nil {
+			return err
+		}
+
+		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
+
+		// The reason a file left the ratio is visible whether or not
+		// the gate passes, and it prints before the pass/fail lines
+		// below (D-18, D-38).
+		for _, s := range dr.Skipped {
+			fmt.Fprintf(stderr, "plumb: %s: %s\n", s.Name, s.Reason)
+		}
+
+		if pct, ok := dr.Pct(); ok {
+			got, want := truncPct(pct), truncPct(*minDiff)
+			successParts = append(successParts, fmt.Sprintf("%.1f%% diff", got))
+			if pct < *minDiff {
+				failures = append(failures, fmt.Sprintf("plumb: diff coverage %.1f%%, need %.1f%% (--min-diff)", got, want))
+			}
+		} else {
+			// D-37: a diff with nothing coverable to measure is not a
+			// 0% diff, so every threshold passes.
+			successParts = append(successParts, "no coverable lines changed")
+		}
+	}
+
 	// Collect failures rather than return on the first one: two
 	// failed thresholds give two stderr lines, statements first, and
 	// one exit code (D-24).
@@ -157,10 +197,21 @@ Examples:
 }
 
 // addCheckFlags registers the threshold flags check reads.
-func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs *float64) {
+func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs, minDiff *float64, diffBase *string) {
 	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
 	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
-	return minStmts, minFuncs
+	minDiff = fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)")
+	diffBase = fs.String("diff-base", "", "git reference to diff against")
+	return minStmts, minFuncs, minDiff, diffBase
+}
+
+// shortSHA returns the first 7 characters of a git commit SHA, or the
+// whole string when it is shorter than that.
+func shortSHA(sha string) string {
+	if len(sha) <= 7 {
+		return sha
+	}
+	return sha[:7]
 }
 
 // validThreshold reports whether v lies in the closed range 0 to

@@ -58,3 +58,29 @@ func Annotate(p *cover.Profile, diskPath string) ([]AnnotatedLine, error) {
 
 	return lines, nil
 }
+
+// CoverableChanged filters changed line numbers down to the ones the
+// profile annotated as Covered or Uncovered. A changed number the
+// annotated lines do not hold is skipped, and so is an Uncoverable
+// line — a brace, an import, a comment — which is how a changed line
+// with nothing to cover stays out of both sides of the ratio (D-36).
+// It is the one implementation of that rule: cmd/plumb/diffcov.go and
+// internal/report both call it, so the CLI percentage and the HTML
+// percentage can never disagree.
+func CoverableChanged(changed []int, lines []AnnotatedLine) (covered, total int) {
+	byLine := make(map[int]AnnotatedLine, len(lines))
+	for _, l := range lines {
+		byLine[l.Number] = l
+	}
+	for _, n := range changed {
+		l, ok := byLine[n]
+		if !ok || l.Status == Uncoverable {
+			continue
+		}
+		total++
+		if l.Status == Covered {
+			covered++
+		}
+	}
+	return covered, total
+}

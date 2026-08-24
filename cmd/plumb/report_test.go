@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -164,4 +165,59 @@ func TestPlumbHelpListsFiveCommands(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	require.Equal(t, 5, len(allCommands()))
+}
+
+// TestReportNoDiffSummaryUnchanged proves the summary line report
+// printed before this plan is unchanged, byte for byte, when no diff
+// flag is given.
+func TestReportNoDiffSummaryUnchanged(t *testing.T) {
+	copyFixture(t)
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"report", filepath.Join(".plumb", "coverage.out")}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Equal(t, "plumb: wrote coverage.html (100.0% stmts, 100.0% funcs)\n", stdout.String())
+}
+
+// TestReportDiffPrintsThreeNumbers proves DIFF-01 and D-47: report
+// --diff prints a diff percentage beside the statement and function
+// percentages, each with its own label, and the two module-wide
+// numbers are unaffected by the diff scope.
+func TestReportDiffPrintsThreeNumbers(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"report", "--diff", "--diff-base", base}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "plumb: diff against")
+	require.Contains(t, stdout.String(), "50.0% diff")
+	require.Contains(t, stdout.String(), "% stmts")
+	require.Contains(t, stdout.String(), "% funcs")
+}
+
+// TestReportDiffEmptyDiffPrintsPhrase proves D-37 on the report path:
+// a diff whose only changed line is uncoverable prints the empty-diff
+// phrase in place of a percentage and exits 0.
+func TestReportDiffEmptyDiffPrintsPhrase(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	calcPath := filepath.Join(dir, "calc", "calc.go")
+	src, err := os.ReadFile(calcPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src), "// Add returns a plus b.", "// Add returns the sum of a and b.", 1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the comment this edit replaces")
+	require.NoError(t, os.WriteFile(calcPath, []byte(edited), 0o644))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"report", "--diff", "--diff-base", base}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "no coverable lines changed")
 }

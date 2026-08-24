@@ -358,3 +358,31 @@ func TestEnsureProfileDirKeepsExistingGitignore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "# mine", string(got))
 }
+
+// TestRunDiffEndToEnd proves D-41: run --diff runs the tests, writes
+// the profile, and prints diff coverage in one command — the whole
+// local loop from an edit to a report about the lines just written.
+func TestRunDiffEndToEnd(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"run", "--diff", "--diff-base", base}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "50.0% diff")
+}
+
+// TestRunDiffFailureNoRender proves RUN-05 and D-09 still hold with
+// --diff: a failing test run exits non-zero and writes no report,
+// diff or not.
+func TestRunDiffFailureNoRender(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	breakFixture(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"run", "--diff", "--diff-base", base}, &stdout, &stderr)
+	require.NotEqual(t, 0, code)
+
+	_, statErr := os.Stat(filepath.Join(dir, "coverage.html"))
+	require.True(t, os.IsNotExist(statErr))
+}

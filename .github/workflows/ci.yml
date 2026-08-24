@@ -12,6 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A shallow clone (the actions/checkout@v4 default) leaves
+          # refs/remotes/origin/HEAD unset and the fallback branches absent,
+          # so --min-diff's default reference has no merge base to resolve
+          # against on this repository's first pull request (D-43).
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
@@ -23,6 +29,9 @@ jobs:
       - name: coverage gate
         id: coverage-gate
         run: ./plumb check coverage.out --min-statements 85
+      - name: diff coverage gate
+        id: diff-coverage-gate
+        run: ./plumb check coverage.out --min-diff 80
       - uses: actions/upload-artifact@v4
         if: always()
         with:

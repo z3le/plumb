@@ -1,3 +1,21 @@
+## v0.1.4 (Unreleased)
+
+### Added
+
+- Diff coverage. `plumb report --diff`, `plumb run --diff`, and
+  `plumb check --min-diff` measure coverage on the lines a change touched,
+  not the whole module — the number `diff-cover` and Codecov report, and the
+  one a reviewer expects. `--diff-base <ref>` names the reference to diff
+  against on all three commands; with no `--diff-base`, plumb reads
+  `refs/remotes/origin/HEAD` first, then tries `origin/main`, `origin/master`,
+  `main`, and `master`, and prints the reference it chose. `--min-diff`
+  gates a build the same way `--min-statements` and `--min-functions` do,
+  and exits 3 below the bar. A bad `--diff-base` value exits 2; running
+  outside a git repository exits 1. The HTML report gains a matching diff
+  view: `--diff` filters the file list to files the diff touched, keeps
+  each file's whole source, marks the changed lines, and lists every file
+  plumb left out and why.
+
 ## v0.1.3 (2026-08-23)
 
 ### Added

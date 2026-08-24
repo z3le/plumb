@@ -175,3 +175,32 @@ func TestDiffCoverageModuleRootBelowRepoRoot(t *testing.T) {
 
 	require.Equal(t, extractDiffPct(t, flat), extractDiffPct(t, nested))
 }
+
+// TestCheckMinDiffDefaultBaseResolves proves DIFF-02 and D-43 end to
+// end: with no --diff-base given and no remote at all, plumb walks
+// the fallback chain down to the repository's own branch, prints the
+// reference it chose, and still gates on the diff percentage.
+func TestCheckMinDiffDefaultBaseResolves(t *testing.T) {
+	dir := t.TempDir()
+	fixtureSrc, err := filepath.Abs("testdata/fixturemod")
+	require.NoError(t, err)
+	require.NoError(t, os.CopyFS(dir, os.DirFS(fixtureSrc)))
+	t.Chdir(dir)
+
+	runGit(t, "init", "-q", "-b", "main")
+	runGit(t, "config", "user.email", "plumb@example.com")
+	runGit(t, "config", "user.name", "plumb")
+	runGit(t, "add", "-A")
+	runGit(t, "commit", "-q", "-m", "base")
+
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--min-diff", "0"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "plumb: diff against main (merge base")
+	require.Contains(t, stdout.String(), "50.0% diff")
+}

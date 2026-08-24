@@ -299,7 +299,7 @@ func TestRunFlagsMatchReportFlags(t *testing.T) {
 	runHelp := runErr.String() + runOut.String()
 	reportHelp := reportErr.String() + reportOut.String()
 
-	want := []string{"open", "out", "title"}
+	want := []string{"diff", "diff-base", "open", "out", "title"}
 	require.Equal(t, want, flagNames(t, runHelp))
 	require.Equal(t, want, flagNames(t, reportHelp))
 }

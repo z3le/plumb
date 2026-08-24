@@ -90,3 +90,54 @@ func TestAnnotate(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// TestCoverableChanged proves D-36: an Uncoverable changed line and a
+// changed number the file does not hold both drop out of the ratio,
+// leaving only a line the profile actually measured.
+func TestCoverableChanged(t *testing.T) {
+	lines := []AnnotatedLine{
+		{Number: 1, Status: Uncoverable},
+		{Number: 2, Status: Covered},
+		{Number: 3, Status: Covered},
+		{Number: 4, Status: Uncovered},
+	}
+
+	tests := []struct {
+		name        string
+		changed     []int
+		wantCovered int
+		wantTotal   int
+	}{
+		{
+			name:        "uncoverable changed line drops out of both sides",
+			changed:     []int{1, 2},
+			wantCovered: 1,
+			wantTotal:   1,
+		},
+		{
+			name:        "changed number the file does not hold is skipped",
+			changed:     []int{2, 99},
+			wantCovered: 1,
+			wantTotal:   1,
+		},
+		{
+			name:        "all-covered set",
+			changed:     []int{2, 3},
+			wantCovered: 2,
+			wantTotal:   2,
+		},
+		{
+			name:        "empty changed set",
+			changed:     nil,
+			wantCovered: 0,
+			wantTotal:   0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			covered, total := CoverableChanged(tc.changed, lines)
+			require.Equal(t, tc.wantCovered, covered)
+			require.Equal(t, tc.wantTotal, total)
+		})
+	}
+}

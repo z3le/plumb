@@ -1,0 +1,162 @@
+// cmd/plumb/diffcov.go
+package main
+
+import (
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/z3le/plumb/internal/gitdiff"
+	"github.com/z3le/plumb/internal/profile"
+	"github.com/z3le/plumb/internal/report"
+)
+
+// noCoverableLinesChanged is the phrase D-37 prints when a whole diff
+// has nothing coverable to measure, and the phrase D-51 reuses for
+// the same case scoped to one file — one rule, read the same way at
+// both scopes.
+const noCoverableLinesChanged = "no coverable lines changed"
+
+// diffResult holds a diff coverage measurement: the counters that
+// answer --min-diff, plus the reference and merge base that produced
+// them and the files the measurement left out.
+type diffResult struct {
+	Base      string
+	MergeBase string
+	Covered   int
+	Total     int
+	Skipped   []report.SkippedFile
+}
+
+// Pct returns the diff coverage percentage and true when Total is
+// above zero. The false case is D-37's signal: a diff with nothing
+// coverable to measure is not a 0% diff, it is no diff at all.
+func (d *diffResult) Pct() (float64, bool) {
+	if d.Total <= 0 {
+		return 0, false
+	}
+	return float64(d.Covered) / float64(d.Total) * 100, true
+}
+
+// diffCoverage resolves the merge base of base against HEAD, reads
+// the lines that changed since it, and intersects them with the
+// coverage profiles to produce a diffResult.
+func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, base string) (*diffResult, error) {
+	runner, err := gitdiff.NewRunner(".")
+	if err != nil {
+		return nil, err
+	}
+
+	repoRoot, err := runner.RepoRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	mergeBase, err := runner.MergeBase(base)
+	if err != nil {
+		return nil, err
+	}
+
+	diffText, err := runner.Diff(mergeBase)
+	if err != nil {
+		return nil, err
+	}
+
+	hunks, err := gitdiff.ParseHunks(diffText)
+	if err != nil {
+		return nil, err
+	}
+
+	changedByName, err := renameToProfileNames(hunks, modulePath, moduleRoot, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &diffResult{Base: base, MergeBase: mergeBase}
+
+	for _, pp := range profiles {
+		lines, ok := changedByName[pp.FileName]
+		if !ok {
+			continue
+		}
+		delete(changedByName, pp.FileName)
+
+		diskPath, err := profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
+		if err != nil {
+			return nil, err
+		}
+		annotated, err := profile.Annotate(pp.CoverProfile, diskPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading source for %s: %w", pp.FileName, err)
+		}
+
+		covered, total := profile.CoverableChanged(lines, annotated)
+		if total == 0 {
+			// The file is in the profile, but every line the diff
+			// touched in it is Uncoverable: the same D-37 rule as a
+			// whole empty diff, applied one level down (D-51).
+			result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: noCoverableLinesChanged})
+			continue
+		}
+		result.Covered += covered
+		result.Total += total
+	}
+
+	// A changed .go file the profile never mentions leaves both
+	// counters alone; the caller learns why through Skipped (D-38).
+	var leftover []string
+	for name := range changedByName {
+		leftover = append(leftover, name)
+	}
+	sort.Strings(leftover)
+	for _, name := range leftover {
+		result.Skipped = append(result.Skipped, report.SkippedFile{Name: name, Reason: "not in the coverage profile"})
+	}
+
+	// Deterministic stderr output: a file-scope skip (encountered in
+	// profile order above) and a not-in-profile skip (already sorted)
+	// interleave here into one alphabetical list.
+	sort.Slice(result.Skipped, func(i, j int) bool {
+		return result.Skipped[i].Name < result.Skipped[j].Name
+	})
+
+	return result, nil
+}
+
+// renameToProfileNames answers RESEARCH assumption A2: git reports
+// every changed path relative to the repository root, but the
+// coverage profile names every file with an import path rooted at
+// the module path. It resolves both to one key space so the
+// intersection with ParsedProfile.FileName is a plain map lookup,
+// and it keeps working when go.mod sits in a subdirectory of the
+// repository.
+func renameToProfileNames(hunks map[string][]int, modulePath, moduleRoot, repoRoot string) (map[string][]int, error) {
+	realRepoRoot, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving the repository root %s: %w", repoRoot, err)
+	}
+	realModuleRoot, err := filepath.EvalSymlinks(moduleRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving the module root %s: %w", moduleRoot, err)
+	}
+
+	out := make(map[string][]int, len(hunks))
+	for gitPath, lines := range hunks {
+		abs := filepath.Join(realRepoRoot, filepath.FromSlash(gitPath))
+		rel, err := filepath.Rel(realModuleRoot, abs)
+		if err != nil {
+			continue
+		}
+		// The file belongs to another module in the same repository.
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		name := modulePath + "/" + filepath.ToSlash(rel)
+		out[name] = lines
+	}
+	return out, nil
+}

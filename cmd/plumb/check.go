@@ -157,7 +157,7 @@ Examples:
 			return err
 		}
 
-		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase)
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase, profilePath)
 		if err != nil {
 			return mapDiffCoverageError(err, stderr)
 		}

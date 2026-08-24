@@ -145,7 +145,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	// label never describes a scope other than its own (D-47).
 	var diffPart string
 	if opts.Diff {
-		dr, err := diffCoverage(profiles, modulePath, moduleRoot, opts.DiffBase)
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, opts.DiffBase, opts.ProfilePath)
 		if err != nil {
 			return mapDiffCoverageError(err, stderr)
 		}

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/z3le/plumb/internal/gitdiff"
 	"github.com/z3le/plumb/internal/profile"
@@ -44,8 +46,10 @@ func (d *diffResult) Pct() (float64, bool) {
 // diffCoverage resolves base to a reference (D-43 when base is
 // empty), computes its merge base against HEAD, reads the lines that
 // changed since it, and intersects them with the coverage profiles
-// to produce a diffResult.
-func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, base string) (*diffResult, error) {
+// to produce a diffResult. profilePath is the profile diffCoverage is
+// measuring against, so it can compare each changed source file's
+// modification time to the profile's own (D-45).
+func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, base, profilePath string) (*diffResult, error) {
 	// A --diff-base value that begins with a hyphen would be read by
 	// git as an option rather than a revision, and merge-base accepts
 	// no end-of-options separator to defend against that. Refuse it
@@ -92,6 +96,17 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 
 	result := &diffResult{Base: resolvedBase, MergeBase: mergeBase}
 
+	// Stat the profile once, before the file loop, and hold its
+	// modification time. A profile plumb cannot stat produces no
+	// staleness entries at all rather than an error: the run already
+	// succeeded once to produce the profiles this function was called
+	// with, and a stat failure here would fail a build for a reason
+	// unrelated to coverage (D-45).
+	var profileModTime time.Time
+	if info, statErr := os.Stat(profilePath); statErr == nil {
+		profileModTime = info.ModTime()
+	}
+
 	for _, pp := range profiles {
 		lines, ok := changedByName[pp.FileName]
 		if !ok {
@@ -103,6 +118,20 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		if err != nil {
 			return nil, err
 		}
+
+		// D-44 makes the working tree the thing plumb diffs, so an
+		// edit after a test run is the common local case. Name the
+		// file and keep going: the caveat sits beside the number, not
+		// in place of it, so the counters below are unaffected. A stat
+		// error here is swallowed, not returned — an unreadable file
+		// is already covered by the absent-file reason, and Annotate
+		// below will report it if it truly cannot be read.
+		if !profileModTime.IsZero() {
+			if info, statErr := os.Stat(diskPath); statErr == nil && info.ModTime().After(profileModTime) {
+				result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: "newer than the profile"})
+			}
+		}
+
 		annotated, err := profile.Annotate(pp.CoverProfile, diskPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading source for %s: %w", pp.FileName, err)

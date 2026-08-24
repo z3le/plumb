@@ -182,7 +182,7 @@ spelling and a relaxed `errcheck` rule for `_test.go` files.
 ### `go.mod`
 
 Declares the module path `github.com/z3le/plumb` and pins the Go
-language version to `go 1.26.3`. This is the minimum Go toolchain
+language version to `go 1.25.0`. This is the minimum Go toolchain
 version required to build `plumb` from source.
 
 ### `VERSION` file and releases

@@ -11,7 +11,7 @@ reference — it links to it.
 
 ## Prerequisites
 
-`plumb` requires Go 1.26.3 or later, the version pinned in `go.mod`.
+`plumb` requires Go 1.25.0 or later, the version pinned in `go.mod`.
 Check your installed version.
 
 ```sh

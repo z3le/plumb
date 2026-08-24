@@ -14,7 +14,7 @@
 go install github.com/z3le/plumb/cmd/plumb@latest
 ```
 
-Requires Go 1.26.3 or later.
+Requires Go 1.25.0 or later.
 
 ## Usage
 

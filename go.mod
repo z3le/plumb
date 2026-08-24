@@ -1,6 +1,6 @@
 module github.com/z3le/plumb
 
-go 1.26.3
+go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.24.1

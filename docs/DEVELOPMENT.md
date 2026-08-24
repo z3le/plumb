@@ -12,7 +12,7 @@ and write tests, read [Testing](TESTING.md).
 `go.mod` pins the language version:
 
 ```
-go 1.26.3
+go 1.25.0
 ```
 
 Install a Go toolchain at this version or later. The README states

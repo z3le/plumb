@@ -33,18 +33,26 @@ func fileID(name string) string {
 	return fmt.Sprintf("f%x", md5.Sum([]byte(name)))
 }
 
-// Build constructs a Report from parsed coverage profiles.
-// modulePath is the module path from go.mod (e.g. "github.com/foo/bar").
-// moduleRoot is the directory containing go.mod.
-func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title string) (*Report, error) {
+// noCoverableLinesChanged is the phrase D-51 reuses from D-37 at file
+// scope: a changed file the profile mentions whose changed lines are
+// all Uncoverable carries no number, so it joins Skipped with this
+// reason instead of Files. Read the same sentence
+// cmd/plumb/diffcov.go prints at whole-diff scope.
+const noCoverableLinesChanged = "no coverable lines changed"
+
+// Build constructs a Report from parsed coverage profiles. See
+// BuildOptions for the fields it reads.
+func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error) {
+	title := opts.Title
 	if title == "" {
-		title = path.Base(modulePath)
+		title = path.Base(opts.ModulePath)
 	}
 
-	r := &Report{Title: title}
+	r := &Report{Title: title, Diff: opts.Diff, DiffBase: opts.DiffBase}
 
 	var totalStmtCovered, totalStmtTotal int
 	var totalFuncsCovered, totalFuncsTotal int
+	var totalDiffCovered, totalDiffTotal int
 
 	for _, pp := range profiles {
 		// A nil profile carries no block to count or annotate. Skip it,
@@ -53,7 +61,7 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 			continue
 		}
 
-		diskPath, err := profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
+		diskPath, err := profile.ResolveSafe(pp.FileName, opts.ModulePath, opts.ModuleRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +83,14 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 			funcs = nil
 		}
 
-		rendered, err := renderLines(lines, diskPath)
+		// changedLines is nil for a file the changed map does not name,
+		// or when diff mode is off (opts.Changed is nil). renderLines
+		// and CoverableChanged both treat a nil slice as an empty
+		// set, so nothing downstream needs a second branch for "diff
+		// mode is off" (D-46).
+		changedLines, named := opts.Changed[pp.FileName]
+
+		rendered, err := renderLines(lines, diskPath, changedLines)
 		if err != nil {
 			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
 			continue
@@ -91,7 +106,8 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 		}
 		funcPct := profile.FuncPct(funcs)
 
-		// accumulate totals
+		// accumulate totals — unconditional, so filtering the file list
+		// below can never change a module-wide number (D-47).
 		totalStmtCovered += stmtCovered
 		totalStmtTotal += stmtTotal
 		for _, f := range funcs {
@@ -101,15 +117,52 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 			}
 		}
 
-		r.Files = append(r.Files, FileReport{
+		// The diff accumulator stays unconditional too: a file the
+		// changed map does not name contributes zero to both counters
+		// via CoverableChanged(nil, lines), which is the one
+		// implementation of D-36 the CLI path also calls.
+		diffCovered, diffTotal := profile.CoverableChanged(changedLines, lines)
+		totalDiffCovered += diffCovered
+		totalDiffTotal += diffTotal
+
+		var diffPct float64
+		if diffTotal > 0 {
+			diffPct = float64(diffCovered) / float64(diffTotal) * 100
+		}
+
+		fr := FileReport{
 			Name:      pp.FileName,
 			ShortName: path.Base(pp.FileName),
-			Pkg:       shortPkg(pp.FileName, modulePath),
+			Pkg:       shortPkg(pp.FileName, opts.ModulePath),
 			StmtPct:   stmtPct,
 			FuncPct:   funcPct,
+			DiffPct:   diffPct,
 			Lines:     rendered,
 			Funcs:     funcs,
-		})
+		}
+
+		switch {
+		case !opts.Diff:
+			// Diff mode is off: every file the profile mentions renders,
+			// exactly as it did before this plan.
+			r.Files = append(r.Files, fr)
+		case !named:
+			// Case 1: the diff did not touch this file. Drop it from
+			// Files and add no skip entry — a file the diff did not
+			// touch is out of scope, not an omission, and a skip line
+			// for every untouched file would bury the real ones (D-46).
+		case diffTotal > 0:
+			// Case 2: the diff named the file and it carries at least
+			// one coverable changed line.
+			r.Files = append(r.Files, fr)
+		default:
+			// Case 3: the diff named the file, but every line it
+			// touched there is Uncoverable. Leave it out of Files and
+			// name it in Skipped with the same phrase D-37 prints at
+			// whole-diff scope — one rule, read the same at both
+			// scopes (D-51).
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: noCoverableLinesChanged})
+		}
 	}
 
 	if totalStmtTotal > 0 {
@@ -117,6 +170,13 @@ func Build(profiles []*profile.ParsedProfile, modulePath, moduleRoot, title stri
 	}
 	if totalFuncsTotal > 0 {
 		r.FuncPct = float64(totalFuncsCovered) / float64(totalFuncsTotal) * 100
+	}
+	// DiffMeasured is D-37's signal: a diff with no coverable changed
+	// line anywhere is not a 0% diff, it is no diff at all, so DiffPct
+	// must not be rendered unless this is true.
+	r.DiffMeasured = totalDiffTotal > 0
+	if r.DiffMeasured {
+		r.DiffPct = float64(totalDiffCovered) / float64(totalDiffTotal) * 100
 	}
 
 	return r, nil
@@ -137,8 +197,11 @@ func RenderToFile(outPath string, r *Report) error {
 }
 
 // renderLines runs chroma syntax highlighting on the source file and
-// returns RenderedLines with HTML source for each line.
-func renderLines(lines []profile.AnnotatedLine, diskPath string) ([]RenderedLine, error) {
+// returns RenderedLines with HTML source for each line. changed holds
+// the line numbers the diff touched in this file; a nil or empty
+// slice marks every line unchanged, which is what a caller outside
+// diff mode passes (D-46).
+func renderLines(lines []profile.AnnotatedLine, diskPath string, changed []int) ([]RenderedLine, error) {
 	// Read source for chroma
 	src := make([]string, len(lines))
 	for i, l := range lines {
@@ -153,6 +216,11 @@ func renderLines(lines []profile.AnnotatedLine, diskPath string) ([]RenderedLine
 		}
 	}
 
+	changedSet := make(map[int]bool, len(changed))
+	for _, n := range changed {
+		changedSet[n] = true
+	}
+
 	out := make([]RenderedLine, len(lines))
 	for i, l := range lines {
 		h := template.HTML("")
@@ -160,10 +228,11 @@ func renderLines(lines []profile.AnnotatedLine, diskPath string) ([]RenderedLine
 			h = highlighted[i]
 		}
 		out[i] = RenderedLine{
-			Number: l.Number,
-			HTML:   h,
-			Status: l.Status,
-			Count:  l.Count,
+			Number:  l.Number,
+			HTML:    h,
+			Status:  l.Status,
+			Count:   l.Count,
+			Changed: changedSet[l.Number],
 		}
 	}
 	return out, nil

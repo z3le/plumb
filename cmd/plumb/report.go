@@ -132,29 +132,50 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 		return fmt.Errorf("parsing profile: %w", err)
 	}
 
-	// Build the report data
-	r, err := report.Build(profiles, modulePath, moduleRoot, opts.Title)
-	if err != nil {
-		return fmt.Errorf("building report: %w", err)
+	buildOpts := report.BuildOptions{
+		ModulePath: modulePath,
+		ModuleRoot: moduleRoot,
+		Title:      opts.Title,
+		Diff:       opts.Diff,
 	}
 
-	// diffPart, when diff mode is on, is the diff percentage phrase
-	// that leads the summary line, with its own trailing separator.
-	// The statement and function percentages above keep coming from
-	// report.Build, which sums over every file in the profile, so a
-	// label never describes a scope other than its own (D-47).
-	var diffPart string
+	// diffCoverage runs before report.Build, not after it, so the
+	// changed-line map it produces is available for Build to filter
+	// and measure by (D-46, D-47). A skipped file from diffCoverage
+	// joins Build's own Skipped list below and prints once through the
+	// one loop that follows, rather than through two loops (D-48).
+	var diffSkipped []report.SkippedFile
 	if opts.Diff {
 		dr, err := diffCoverage(profiles, modulePath, moduleRoot, opts.DiffBase, opts.ProfilePath)
 		if err != nil {
 			return mapDiffCoverageError(err, stderr)
 		}
 		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
-		// A skipped file prints once through the loop below rather
-		// than twice through two loops (D-48).
-		r.Skipped = append(r.Skipped, dr.Skipped...)
-		if pct, ok := dr.Pct(); ok {
-			diffPart = fmt.Sprintf("%.1f%% diff, ", pct)
+		buildOpts.Changed = dr.Changed
+		buildOpts.DiffBase = dr.Base
+		diffSkipped = dr.Skipped
+	}
+
+	// Build the report data
+	r, err := report.Build(profiles, buildOpts)
+	if err != nil {
+		return fmt.Errorf("building report: %w", err)
+	}
+	r.Skipped = append(r.Skipped, diffSkipped...)
+
+	// diffPart, when diff mode is on, is the diff percentage phrase
+	// that leads the summary line, with its own trailing separator.
+	// It reads r.DiffPct and r.DiffMeasured — the same numbers
+	// report.Build computed with the same profile.CoverableChanged
+	// call the HTML view uses, so the CLI line and the HTML header can
+	// never disagree. The statement and function percentages above
+	// keep coming from report.Build, which sums over every file in the
+	// profile, so a label never describes a scope other than its own
+	// (D-47).
+	var diffPart string
+	if opts.Diff {
+		if r.DiffMeasured {
+			diffPart = fmt.Sprintf("%.1f%% diff, ", r.DiffPct)
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so the phrase replaces the number.
@@ -162,13 +183,16 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 		}
 	}
 
-	// A file the run could not read is left out of the report. Name
-	// each one, because a percentage from fewer files than the profile
+	// A file the run could not read, or that the diff left out, is
+	// named here. A percentage from fewer files than the profile
 	// measured must never look like a complete result.
 	for _, s := range r.Skipped {
 		fmt.Fprintf(stderr, "plumb: skipped %s: %s\n", s.Name, s.Reason)
 	}
-	if len(r.Skipped) > 0 && len(r.Files) == 0 {
+	// In diff mode an empty file list is the normal outcome of a
+	// commit that touched no Go code, so this guard applies only when
+	// diff mode is off.
+	if !opts.Diff && len(r.Skipped) > 0 && len(r.Files) == 0 {
 		return fmt.Errorf("no source file could be read for %s", opts.ProfilePath)
 	}
 

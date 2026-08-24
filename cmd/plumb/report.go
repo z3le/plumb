@@ -138,6 +138,30 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 		return fmt.Errorf("building report: %w", err)
 	}
 
+	// diffPart, when diff mode is on, is the diff percentage phrase
+	// that leads the summary line, with its own trailing separator.
+	// The statement and function percentages above keep coming from
+	// report.Build, which sums over every file in the profile, so a
+	// label never describes a scope other than its own (D-47).
+	var diffPart string
+	if opts.Diff {
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, opts.DiffBase)
+		if err != nil {
+			return mapDiffCoverageError(err, stderr)
+		}
+		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
+		// A skipped file prints once through the loop below rather
+		// than twice through two loops (D-48).
+		r.Skipped = append(r.Skipped, dr.Skipped...)
+		if pct, ok := dr.Pct(); ok {
+			diffPart = fmt.Sprintf("%.1f%% diff, ", pct)
+		} else {
+			// D-37: a diff with nothing coverable to measure is not a
+			// 0% diff, so the phrase replaces the number.
+			diffPart = noCoverableLinesChanged + ", "
+		}
+	}
+
 	// A file the run could not read is left out of the report. Name
 	// each one, because a percentage from fewer files than the profile
 	// measured must never look like a complete result.
@@ -152,7 +176,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	if err := report.RenderToFile(opts.Out, r); err != nil {
 		return fmt.Errorf("writing report: %w", err)
 	}
-	fmt.Fprintf(stdout, "plumb: wrote %s (%.1f%% stmts, %.1f%% funcs)\n", opts.Out, r.StmtPct, r.FuncPct)
+	fmt.Fprintf(stdout, "plumb: wrote %s (%s%.1f%% stmts, %.1f%% funcs)\n", opts.Out, diffPart, r.StmtPct, r.FuncPct)
 
 	if opts.Open {
 		if err := openBrowser(opts.Out); err != nil {

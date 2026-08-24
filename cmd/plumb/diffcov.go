@@ -2,7 +2,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -137,6 +139,26 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 	})
 
 	return result, nil
+}
+
+// mapDiffCoverageError converts an error diffCoverage returned into
+// the error dispatch should see, so report and check map a git
+// failure to the same exit code (T-03-01). A reference the caller
+// typed does not resolve, or looks like a flag: the caller's mistake,
+// so it writes git's own message to stderr and exits 2 the same way
+// the out-of-range threshold guard does (D-49). Every other diff
+// failure — outside a repository, a shallow clone with no common
+// ancestor, an exhausted default-reference chain — is an environment
+// failure, not a caller mistake, and returns unwrapped so dispatch's
+// existing default exit-1 path handles it, with no change needed
+// there.
+func mapDiffCoverageError(err error, stderr io.Writer) error {
+	var badRef *gitdiff.BadRefError
+	if errors.As(err, &badRef) {
+		fmt.Fprintf(stderr, "plumb: %v\n", badRef)
+		return newExitError(2, "diff-base reference does not resolve")
+	}
+	return err
 }
 
 // renameToProfileNames answers RESEARCH assumption A2: git reports

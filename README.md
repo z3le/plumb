@@ -58,14 +58,55 @@ plumb: statement coverage 79.9%, need 80.0% (--min-statements)
 profile downloaded as a build artifact. `--min-functions` adds a second bar and
 reads your source files, so run it in the repository the profile came from.
 
-Paste these two steps into a job in your GitHub Actions workflow:
+Paste these steps into a job in your GitHub Actions workflow:
 
 ```yaml
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # a shallow clone has no merge base for --min-diff to compute against
       - run: go test -coverprofile=coverage.out ./...
-      - run: go run github.com/z3le/plumb/cmd/plumb@latest check coverage.out --min-statements 80
+      - run: go run github.com/z3le/plumb/cmd/plumb@latest check coverage.out --min-statements 80 --min-diff 90
 ```
 
+`fetch-depth: 0` matters even if you gate on `--min-statements` alone today: `actions/checkout@v4` defaults to a depth of 1, which leaves `refs/remotes/origin/HEAD` unset and the fallback branches absent, so `--min-diff`'s default reference has nothing to resolve against on your very first pull request.
+
 There is no install step and no version to go stale.
+
+## Diff coverage
+
+`plumb` can also gate a build on the coverage of the lines a change actually
+touched, not the whole module.
+
+```sh
+plumb check --min-diff 90
+```
+
+Run the same measurement locally, with a report to look at:
+
+```sh
+plumb run --diff --open
+```
+
+To print the number without gating on it, use a floor of 0:
+
+```sh
+plumb check --min-diff 0
+```
+
+Diff coverage counts lines, not statements — `--min-statements` and
+`--min-functions` above count statements, the way `go tool cover -func` does.
+A line is the unit a reviewer expects, and it is what `diff-cover` and
+Codecov report.
+
+With no `--diff-base`, `plumb` reads the reference git itself recorded
+(`refs/remotes/origin/HEAD`) first. When that is not set, it tries
+`origin/main`, `origin/master`, `main`, and `master`, in that order, and uses
+the first one that resolves. `plumb` prints the reference it chose, so you
+never have to guess which branch a number describes.
+
+A new file must be `git add`-ed before any diff can see it — `git diff` never
+reports an untracked file, so a brand-new file is silently absent from the
+percentage until you stage it.
 
 `plumb --help` lists every command:
 
@@ -82,9 +123,11 @@ There is no install step and no version to go stale.
 ```
 plumb run [flags] [pattern] [-- go test args]
 
-  --open         open report in browser after writing
-  --out file     output HTML file (default: coverage.html)
-  --title str    report title (default: module name)
+  --open           open report in browser after writing
+  --out file       output HTML file (default: coverage.html)
+  --title str      report title (default: module name)
+  --diff           report coverage on lines changed since --diff-base
+  --diff-base ref  git reference to diff against (default: merge base with the default branch)
 ```
 
 The pattern defaults to `./...`. A failing test run prints the failure, exits non-zero, and writes no report.
@@ -92,9 +135,11 @@ The pattern defaults to `./...`. A failing test run prints the failure, exits no
 ```
 plumb report [flags] [profile]
 
-  --open         open report in browser after writing
-  --out file     output HTML file (default: coverage.html)
-  --title str    report title (default: module name)
+  --open           open report in browser after writing
+  --out file       output HTML file (default: coverage.html)
+  --title str      report title (default: module name)
+  --diff           report coverage on lines changed since --diff-base
+  --diff-base ref  git reference to diff against (default: merge base with the default branch)
 ```
 
 ```
@@ -102,6 +147,8 @@ plumb check [flags] [profile]
 
   --min-statements n   minimum statement coverage percent
   --min-functions n    minimum function coverage percent (reads the source tree)
+  --min-diff n         minimum diff coverage percent (lines changed since --diff-base)
+  --diff-base ref      git reference to diff against (default: merge base with the default branch)
 ```
 
 The profile defaults to `.plumb/coverage.out`. A missed threshold exits 3.
@@ -130,7 +177,7 @@ plumb report coverage.out --out report.html
 
 ## Roadmap
 
-- [ ] Diff coverage — show coverage only on lines changed since a git ref
+- [x] Diff coverage — show coverage only on lines changed since a git ref
 - [ ] Branch coverage — AST-based approximation
 - [x] `plumb check` — CI threshold enforcement
 

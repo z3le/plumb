@@ -13,8 +13,35 @@ type Report struct {
 	Title   string
 	StmtPct float64
 	FuncPct float64
+
+	// Diff is true when the caller asked for the diff view (D-46).
+	// DiffPct is meaningless and must not be rendered unless the
+	// sibling bool below is true (D-37): a diff with no coverable
+	// changed line is not a 0% diff, it is no diff at all. DiffBase
+	// names the reference the run resolved, so the report says which
+	// two commits produced its number (D-43).
+	Diff         bool
+	DiffPct      float64
+	DiffMeasured bool
+	DiffBase     string
+
 	Files   []FileReport
-	Skipped []SkippedFile // files the run could not read or highlight
+	Skipped []SkippedFile // files the run could not read, could not highlight, or left out of the diff view
+}
+
+// BuildOptions carries every option Build needs. ModulePath is the
+// module path from go.mod (e.g. "github.com/foo/bar"). ModuleRoot is
+// the directory containing go.mod. Changed maps a profile file name
+// to the line numbers the diff touched in it; Build treats a nil or
+// empty Changed the same as Diff being false, so the field is simply
+// absent when there is nothing to filter by.
+type BuildOptions struct {
+	ModulePath string
+	ModuleRoot string
+	Title      string
+	Diff       bool
+	Changed    map[string][]int
+	DiffBase   string
 }
 
 // SkippedFile records a file the report left out, and why. A caller
@@ -31,16 +58,18 @@ type FileReport struct {
 	Pkg       string // package path relative to module, e.g. "pkg/auth"
 	StmtPct   float64
 	FuncPct   float64
+	DiffPct   float64 // this file's own diff coverage percentage (D-46)
 	Lines     []RenderedLine
 	Funcs     []profile.AnnotatedFunc
 }
 
 // RenderedLine is an annotated line with syntax-highlighted HTML source.
 type RenderedLine struct {
-	Number int
-	HTML   template.HTML
-	Status profile.LineStatus
-	Count  int
+	Number  int
+	HTML    template.HTML
+	Status  profile.LineStatus
+	Count   int
+	Changed bool // true when the diff touched this line (D-46)
 }
 
 // pctClass returns a CSS class name for a coverage percentage.

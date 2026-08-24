@@ -2,8 +2,10 @@ package report
 
 import (
 	"bytes"
+	"html/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -125,7 +127,7 @@ func TestBuild(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				profiles := loadProfiles(t)
-				r, err := Build(profiles, modulePath, moduleRoot, tc.title)
+				r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot, Title: tc.title})
 				require.NoError(t, err)
 				require.Equal(t, tc.wantTitle, r.Title)
 			})
@@ -134,21 +136,21 @@ func TestBuild(t *testing.T) {
 
 	t.Run("returns one file for simple fixture", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		r, err := Build(profiles, modulePath, moduleRoot, "")
+		r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
 		require.NoError(t, err)
 		require.Len(t, r.Files, 1)
 	})
 
 	t.Run("short name is base filename", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		r, err := Build(profiles, modulePath, moduleRoot, "")
+		r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
 		require.NoError(t, err)
 		require.Equal(t, "math.go", r.Files[0].ShortName)
 	})
 
 	t.Run("stmt pct is in valid range", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		r, err := Build(profiles, modulePath, moduleRoot, "")
+		r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
 		require.NoError(t, err)
 		require.Greater(t, r.StmtPct, 0.0)
 		require.LessOrEqual(t, r.StmtPct, 100.0)
@@ -156,7 +158,7 @@ func TestBuild(t *testing.T) {
 
 	t.Run("skips a file it cannot read, and names it", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		r, err := Build(profiles, modulePath, t.TempDir(), "")
+		r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: t.TempDir()})
 		// One unreadable file drops out of the report; it never
 		// removes every other file. The caller reports the skip, so
 		// a shorter file list is visible and not silent.
@@ -176,12 +178,239 @@ func TestBuild(t *testing.T) {
 			FileName:     modulePath + "/absent.go",
 			CoverProfile: profiles[0].CoverProfile,
 		}
-		r, err := Build(append(profiles, missing), modulePath, moduleRoot, "")
+		r, err := Build(append(profiles, missing), BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
 		require.NoError(t, err)
 		require.NotEmpty(t, r.Files)
 		require.Len(t, r.Skipped, 1)
 		require.Contains(t, r.Skipped[0].Name, "absent.go")
 	})
+}
+
+// ── Build (diff mode, D-46, D-47, D-51) ─────────────────────────────────────────
+//
+// The fixture file, testdata/fixtures/simple/math.go, annotates as:
+//   1: Uncoverable (package)     7: Uncovered (func Abs)
+//   2: Uncoverable (blank)       8: Uncovered (if n < 0 {)
+//   3: Covered (func Add)        9: Uncovered (return -n)
+//   4: Covered (return a + b)   10: Uncovered (})
+//   5: Covered (})              11: Uncovered (return n)
+//   6: Uncoverable (blank)      12: Uncoverable (})
+
+func TestBuildDiffKeepsModuleTotalsUnchanged(t *testing.T) {
+	profiles := loadProfiles(t)
+	fileName := profiles[0].FileName
+
+	off, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
+	require.NoError(t, err)
+
+	on, err := Build(profiles, BuildOptions{
+		ModulePath: modulePath,
+		ModuleRoot: moduleRoot,
+		Diff:       true,
+		Changed:    map[string][]int{fileName: {3, 4}},
+	})
+	require.NoError(t, err)
+
+	// D-47: filtering the file list must never change either
+	// module-wide number.
+	require.Equal(t, off.StmtPct, on.StmtPct)
+	require.Equal(t, off.FuncPct, on.FuncPct)
+}
+
+func TestBuildDiffFiltersFileList(t *testing.T) {
+	profiles := loadProfiles(t)
+	fileName := profiles[0].FileName
+
+	t.Run("a changed file with a coverable changed line stays in Files, carrying its own DiffPct", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: moduleRoot,
+			Diff: true, Changed: map[string][]int{fileName: {3, 4}},
+		})
+		require.NoError(t, err)
+		require.Len(t, r.Files, 1)
+		require.Empty(t, r.Skipped)
+		require.True(t, r.Diff)
+		require.True(t, r.DiffMeasured)
+		require.Equal(t, 100.0, r.DiffPct)
+		require.Equal(t, 100.0, r.Files[0].DiffPct)
+	})
+
+	t.Run("a changed file whose changed lines are all uncoverable leaves Files and joins Skipped", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: moduleRoot,
+			Diff: true, Changed: map[string][]int{fileName: {1, 2}},
+		})
+		require.NoError(t, err)
+		require.Empty(t, r.Files)
+		require.Len(t, r.Skipped, 1)
+		require.Equal(t, fileName, r.Skipped[0].Name)
+		require.Equal(t, "no coverable lines changed", r.Skipped[0].Reason)
+		require.False(t, r.DiffMeasured)
+	})
+
+	t.Run("a file the changed map does not name is absent from both Files and Skipped", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: moduleRoot,
+			Diff:    true,
+			Changed: map[string][]int{modulePath + "/other.go": {1}},
+		})
+		require.NoError(t, err)
+		require.Empty(t, r.Files)
+		require.Empty(t, r.Skipped)
+		require.False(t, r.DiffMeasured)
+	})
+
+	t.Run("a covered and an uncovered changed line together produce a fractional DiffPct", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: moduleRoot,
+			Diff: true, Changed: map[string][]int{fileName: {3, 7}},
+		})
+		require.NoError(t, err)
+		require.Len(t, r.Files, 1)
+		require.Equal(t, 50.0, r.DiffPct)
+		require.Equal(t, 50.0, r.Files[0].DiffPct)
+	})
+}
+
+func TestBuildDiffBaseAndOptionsCarryThrough(t *testing.T) {
+	profiles := loadProfiles(t)
+	r, err := Build(profiles, BuildOptions{
+		ModulePath: modulePath, ModuleRoot: moduleRoot,
+		Diff: true, DiffBase: "origin/main",
+	})
+	require.NoError(t, err)
+	require.True(t, r.Diff)
+	require.Equal(t, "origin/main", r.DiffBase)
+}
+
+// TestBuildNoDiffFlagRendersSameHTMLAsBeforePlan compares today's
+// Render output, with diff mode off and nothing skipped, against a
+// golden HTML fixture. The fixture is regenerated at the end of this
+// plan (once the template carries every diff-mode addition — the
+// changed-line CSS, the diff-base label, and the skip bar), so this
+// guards the no-diff, nothing-skipped path against a *future*
+// regression: none of that markup or CSS may render, or even affect
+// the byte layout, for a plain "plumb report" with no --diff and no
+// skipped file. This is the report a user with no diff flag gets, and
+// it must never carry a trace of diff-mode chrome.
+func TestBuildNoDiffFlagRendersSameHTMLAsBeforePlan(t *testing.T) {
+	profiles := loadProfiles(t)
+	r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, Render(&buf, r))
+
+	golden, err := os.ReadFile(filepath.Join("testdata", "golden_no_diff.html"))
+	require.NoError(t, err)
+	require.Equal(t, string(golden), buf.String())
+}
+
+// ── Render (diff mode markup, D-46, D-47, D-48, D-51) ───────────────────────────
+
+// diffModeReport builds a hand-constructed Report so a test can assert
+// on exact rendered markup without going through Build and a real git
+// repository — a file with one changed, covered line and one
+// unchanged, uncoverable line, plus one skipped file.
+func diffModeReport() *Report {
+	return &Report{
+		Title:        "test",
+		StmtPct:      75.5,
+		FuncPct:      60.0,
+		Diff:         true,
+		DiffMeasured: true,
+		DiffPct:      50.0,
+		DiffBase:     "origin/main",
+		Files: []FileReport{
+			{
+				Name:      "github.com/z3le/plumb/pkg/foo.go",
+				ShortName: "foo.go",
+				Pkg:       "pkg",
+				StmtPct:   80,
+				FuncPct:   100,
+				DiffPct:   50,
+				Lines: []RenderedLine{
+					{Number: 1, HTML: template.HTML("package foo"), Status: profile.Uncoverable},
+					{Number: 2, HTML: template.HTML("func Foo() {"), Status: profile.Covered, Count: 1, Changed: true},
+					{Number: 3, HTML: template.HTML("}"), Status: profile.Uncoverable},
+				},
+			},
+		},
+		Skipped: []SkippedFile{
+			{Name: "github.com/z3le/plumb/pkg/bar.go", Reason: "not in the coverage profile"},
+		},
+	}
+}
+
+func renderToString(t *testing.T, r *Report) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, Render(&buf, r))
+	return buf.String()
+}
+
+func TestRenderDiffModeMarksChangedLine(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+
+	changedRow := regexp.MustCompile(`<tr class="[^"]*changed[^"]*">\s*<td class="lineno">2</td>`)
+	require.True(t, changedRow.MatchString(html), "line 2 (changed, covered) must carry the changed class")
+
+	unchangedRow := regexp.MustCompile(`<tr class="[^"]*changed[^"]*">\s*<td class="lineno">1</td>`)
+	require.False(t, unchangedRow.MatchString(html), "line 1 (unchanged) must not carry the changed class")
+}
+
+func TestRenderDiffModeLeadsWithThreeLabelledStats(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+
+	// Count rendered <span class="stat-label">...</span> elements, not
+	// the bare substring: the always-present ".stat-label { ... }" CSS
+	// rule in <style> also contains the text "stat-label".
+	require.Equal(t, 3, strings.Count(html, `<span class="stat-label">`), "diff mode must show three labelled stats")
+	diffFirst := regexp.MustCompile(`(?s)<span class="stat-label">Diff</span>.*<span class="stat-label">Statements</span>`)
+	require.Regexp(t, diffFirst, html, "the diff stat must lead, before Statements and Functions")
+	require.Contains(t, html, `<span class="stat-label">Statements</span>`)
+	require.Contains(t, html, `<span class="stat-label">Functions</span>`)
+}
+
+func TestRenderNoDiffFlagShowsTwoLabelledStats(t *testing.T) {
+	r := &Report{Title: "test", StmtPct: 75.5, FuncPct: 60.0}
+	html := renderToString(t, r)
+
+	require.Equal(t, 2, strings.Count(html, `<span class="stat-label">`))
+	require.NotContains(t, html, `<span class="stat-label">Diff</span>`)
+}
+
+func TestRenderDiffModeNamesTheReference(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "origin/main")
+}
+
+func TestRenderEmptyDiffPrintsPhraseInHeader(t *testing.T) {
+	r := diffModeReport()
+	r.DiffMeasured = false
+	r.DiffPct = 0
+	html := renderToString(t, r)
+	require.Contains(t, html, "no coverable lines changed")
+}
+
+func TestRenderSkippedFileAndReasonAppear(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "bar.go")
+	require.Contains(t, html, "not in the coverage profile")
+}
+
+func TestRenderNoSkippedFilesShowsNoSkipBlock(t *testing.T) {
+	r := diffModeReport()
+	r.Skipped = nil
+	html := renderToString(t, r)
+	// The .skip-bar CSS rule in <style> is always present; what must be
+	// absent is the rendered <div class="skip-bar"> block itself.
+	require.NotContains(t, html, `<div class="skip-bar">`)
+}
+
+func TestRenderPerFileDiffPillAppearsInDiffMode(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "50.0% diff")
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -199,7 +428,7 @@ func TestRender(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			profiles := loadProfiles(t)
-			r, err := Build(profiles, modulePath, moduleRoot, tc.title)
+			r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot, Title: tc.title})
 			require.NoError(t, err)
 
 			var buf bytes.Buffer
@@ -214,7 +443,7 @@ func TestRender(t *testing.T) {
 func TestRenderToFile(t *testing.T) {
 	t.Run("writes valid HTML file", func(t *testing.T) {
 		profiles := loadProfiles(t)
-		r, err := Build(profiles, modulePath, moduleRoot, "")
+		r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
 		require.NoError(t, err)
 
 		out := filepath.Join(t.TempDir(), "report.html")

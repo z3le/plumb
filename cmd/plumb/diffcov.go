@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,13 +25,20 @@ const noCoverableLinesChanged = "no coverable lines changed"
 
 // diffResult holds a diff coverage measurement: the counters that
 // answer --min-diff, plus the reference and merge base that produced
-// them and the files the measurement left out.
+// them and the files the measurement left out. Changed maps every
+// file the diff touched (renamed to the profile's own naming
+// convention) to its changed line numbers, keyed the same way before
+// and after this function's own per-file loop consumes it — the
+// report package's Build reads it directly to build its own file
+// list and its own diff percentage, using the same
+// profile.CoverableChanged this function calls (D-36).
 type diffResult struct {
 	Base      string
 	MergeBase string
 	Covered   int
 	Total     int
 	Skipped   []report.SkippedFile
+	Changed   map[string][]int
 }
 
 // Pct returns the diff coverage percentage and true when Total is
@@ -94,7 +102,15 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		return nil, err
 	}
 
-	result := &diffResult{Base: resolvedBase, MergeBase: mergeBase}
+	result := &diffResult{Base: resolvedBase, MergeBase: mergeBase, Changed: changedByName}
+
+	// remaining tracks which changed files this loop has matched
+	// against the profile, so the leftover keys after the loop are the
+	// D-38 case (a changed .go file the profile never mentions). It is
+	// a separate map from result.Changed, which callers such as
+	// report.Build need to keep holding every changed file's line
+	// numbers, matched or not.
+	remaining := maps.Clone(changedByName)
 
 	// Stat the profile once, before the file loop, and hold its
 	// modification time. A profile plumb cannot stat produces no
@@ -112,7 +128,7 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		if !ok {
 			continue
 		}
-		delete(changedByName, pp.FileName)
+		delete(remaining, pp.FileName)
 
 		diskPath, err := profile.ResolveSafe(pp.FileName, modulePath, moduleRoot)
 		if err != nil {
@@ -152,7 +168,7 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 	// A changed .go file the profile never mentions leaves both
 	// counters alone; the caller learns why through Skipped (D-38).
 	var leftover []string
-	for name := range changedByName {
+	for name := range remaining {
 		leftover = append(leftover, name)
 	}
 	sort.Strings(leftover)

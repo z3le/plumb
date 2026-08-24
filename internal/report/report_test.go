@@ -2,8 +2,10 @@ package report
 
 import (
 	"bytes"
+	"html/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -282,11 +284,15 @@ func TestBuildDiffBaseAndOptionsCarryThrough(t *testing.T) {
 }
 
 // TestBuildNoDiffFlagRendersSameHTMLAsBeforePlan compares today's
-// Render output, with diff mode off, against a golden HTML fixture
-// captured from Build's pre-plan implementation (before BuildOptions,
-// DiffPct, DiffMeasured, or Changed existed). Byte-identical output
-// proves plumb report with no diff flag writes the same HTML it wrote
-// before this plan.
+// Render output, with diff mode off and nothing skipped, against a
+// golden HTML fixture. The fixture is regenerated at the end of this
+// plan (once the template carries every diff-mode addition — the
+// changed-line CSS, the diff-base label, and the skip bar), so this
+// guards the no-diff, nothing-skipped path against a *future*
+// regression: none of that markup or CSS may render, or even affect
+// the byte layout, for a plain "plumb report" with no --diff and no
+// skipped file. This is the report a user with no diff flag gets, and
+// it must never carry a trace of diff-mode chrome.
 func TestBuildNoDiffFlagRendersSameHTMLAsBeforePlan(t *testing.T) {
 	profiles := loadProfiles(t)
 	r, err := Build(profiles, BuildOptions{ModulePath: modulePath, ModuleRoot: moduleRoot})
@@ -298,6 +304,113 @@ func TestBuildNoDiffFlagRendersSameHTMLAsBeforePlan(t *testing.T) {
 	golden, err := os.ReadFile(filepath.Join("testdata", "golden_no_diff.html"))
 	require.NoError(t, err)
 	require.Equal(t, string(golden), buf.String())
+}
+
+// ── Render (diff mode markup, D-46, D-47, D-48, D-51) ───────────────────────────
+
+// diffModeReport builds a hand-constructed Report so a test can assert
+// on exact rendered markup without going through Build and a real git
+// repository — a file with one changed, covered line and one
+// unchanged, uncoverable line, plus one skipped file.
+func diffModeReport() *Report {
+	return &Report{
+		Title:        "test",
+		StmtPct:      75.5,
+		FuncPct:      60.0,
+		Diff:         true,
+		DiffMeasured: true,
+		DiffPct:      50.0,
+		DiffBase:     "origin/main",
+		Files: []FileReport{
+			{
+				Name:      "github.com/z3le/plumb/pkg/foo.go",
+				ShortName: "foo.go",
+				Pkg:       "pkg",
+				StmtPct:   80,
+				FuncPct:   100,
+				DiffPct:   50,
+				Lines: []RenderedLine{
+					{Number: 1, HTML: template.HTML("package foo"), Status: profile.Uncoverable},
+					{Number: 2, HTML: template.HTML("func Foo() {"), Status: profile.Covered, Count: 1, Changed: true},
+					{Number: 3, HTML: template.HTML("}"), Status: profile.Uncoverable},
+				},
+			},
+		},
+		Skipped: []SkippedFile{
+			{Name: "github.com/z3le/plumb/pkg/bar.go", Reason: "not in the coverage profile"},
+		},
+	}
+}
+
+func renderToString(t *testing.T, r *Report) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, Render(&buf, r))
+	return buf.String()
+}
+
+func TestRenderDiffModeMarksChangedLine(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+
+	changedRow := regexp.MustCompile(`<tr class="[^"]*changed[^"]*">\s*<td class="lineno">2</td>`)
+	require.True(t, changedRow.MatchString(html), "line 2 (changed, covered) must carry the changed class")
+
+	unchangedRow := regexp.MustCompile(`<tr class="[^"]*changed[^"]*">\s*<td class="lineno">1</td>`)
+	require.False(t, unchangedRow.MatchString(html), "line 1 (unchanged) must not carry the changed class")
+}
+
+func TestRenderDiffModeLeadsWithThreeLabelledStats(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+
+	// Count rendered <span class="stat-label">...</span> elements, not
+	// the bare substring: the always-present ".stat-label { ... }" CSS
+	// rule in <style> also contains the text "stat-label".
+	require.Equal(t, 3, strings.Count(html, `<span class="stat-label">`), "diff mode must show three labelled stats")
+	diffFirst := regexp.MustCompile(`(?s)<span class="stat-label">Diff</span>.*<span class="stat-label">Statements</span>`)
+	require.Regexp(t, diffFirst, html, "the diff stat must lead, before Statements and Functions")
+	require.Contains(t, html, `<span class="stat-label">Statements</span>`)
+	require.Contains(t, html, `<span class="stat-label">Functions</span>`)
+}
+
+func TestRenderNoDiffFlagShowsTwoLabelledStats(t *testing.T) {
+	r := &Report{Title: "test", StmtPct: 75.5, FuncPct: 60.0}
+	html := renderToString(t, r)
+
+	require.Equal(t, 2, strings.Count(html, `<span class="stat-label">`))
+	require.NotContains(t, html, `<span class="stat-label">Diff</span>`)
+}
+
+func TestRenderDiffModeNamesTheReference(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "origin/main")
+}
+
+func TestRenderEmptyDiffPrintsPhraseInHeader(t *testing.T) {
+	r := diffModeReport()
+	r.DiffMeasured = false
+	r.DiffPct = 0
+	html := renderToString(t, r)
+	require.Contains(t, html, "no coverable lines changed")
+}
+
+func TestRenderSkippedFileAndReasonAppear(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "bar.go")
+	require.Contains(t, html, "not in the coverage profile")
+}
+
+func TestRenderNoSkippedFilesShowsNoSkipBlock(t *testing.T) {
+	r := diffModeReport()
+	r.Skipped = nil
+	html := renderToString(t, r)
+	// The .skip-bar CSS rule in <style> is always present; what must be
+	// absent is the rendered <div class="skip-bar"> block itself.
+	require.NotContains(t, html, `<div class="skip-bar">`)
+}
+
+func TestRenderPerFileDiffPillAppearsInDiffMode(t *testing.T) {
+	html := renderToString(t, diffModeReport())
+	require.Contains(t, html, "50.0% diff")
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────

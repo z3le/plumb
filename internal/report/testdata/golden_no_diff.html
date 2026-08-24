@@ -96,7 +96,12 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
   font-size:12px; line-height:1.6; }
 .source-table tr.covered   { background:rgba(26,71,49,.35); }
 .source-table tr.uncovered { background:rgba(74,30,30,.45); }
+.source-table tr.changed   { outline:1px solid var(--yellow-text); outline-offset:-1px; }
 .source-table tr:hover { filter:brightness(1.12); }
+.diff-base { font-size:10px; font-weight:400; color:var(--text-muted); margin-left:8px; }
+.skip-bar { padding:6px 20px; background:var(--bg-panel); border-bottom:1px solid var(--border);
+  display:flex; flex-wrap:wrap; gap:4px 16px; font-size:11px; color:var(--text-muted); flex-shrink:0; }
+.skip-label { font-weight:600; text-transform:uppercase; font-size:10px; letter-spacing:.04em; }
 .lineno { color:var(--text-dim); padding:0 12px 0 16px; text-align:right;
   user-select:none; white-space:nowrap; width:1%; border-right:1px solid var(--border); }
 .hitcount { color:var(--text-dim); padding:0 10px; text-align:right;
@@ -111,6 +116,7 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
 <header>
   <h1><span class="logo">plumb</span> — plumb</h1>
   <div class="summary-bar">
+    
     <div class="stat">
       <span class="stat-label">Statements</span>
       <span class="stat-value bad">25.0%</span>
@@ -121,6 +127,8 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
     </div>
   </div>
 </header>
+
+
 
 <div class="layout">
 
@@ -145,6 +153,7 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
           <span class="file-pkg">fixtures/simple</span>
           math.go
         </div>
+        
         <span class="pct-pill bad">25.0%</span>
       </div>
       

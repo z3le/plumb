@@ -54,16 +54,15 @@ Examples:
 
 	// --min-diff also satisfies this guard (D-39): a caller who wants
 	// only the diff percentage runs "plumb check --min-diff 0" with no
-	// other threshold. The stderr sentence keeps naming the first two
-	// flags for now; 03-01 task 3 renames it to list all three.
+	// other threshold.
 	if !given["min-statements"] && !given["min-functions"] && !given["min-diff"] {
-		fmt.Fprint(stderr, "plumb: no coverage threshold given, want --min-statements or --min-functions\n")
+		fmt.Fprint(stderr, "plumb: no coverage threshold given, want --min-statements, --min-functions, or --min-diff\n")
 		fs.Usage()
 		return newExitError(2, "no coverage threshold given")
 	}
 
-	// Check min-statements first, then min-functions, and report the
-	// first rejected value only (D-35).
+	// Check min-statements first, then min-functions, then min-diff,
+	// and report the first rejected value only (D-35).
 	if given["min-statements"] && !validThreshold(*minStmts) {
 		fmt.Fprintf(stderr, "plumb: --min-statements value %v is out of range, want 0 to 100\n", *minStmts)
 		fs.Usage()
@@ -71,6 +70,11 @@ Examples:
 	}
 	if given["min-functions"] && !validThreshold(*minFuncs) {
 		fmt.Fprintf(stderr, "plumb: --min-functions value %v is out of range, want 0 to 100\n", *minFuncs)
+		fs.Usage()
+		return newExitError(2, "threshold out of range")
+	}
+	if given["min-diff"] && !validThreshold(*minDiff) {
+		fmt.Fprintf(stderr, "plumb: --min-diff value %v is out of range, want 0 to 100\n", *minDiff)
 		fs.Usage()
 		return newExitError(2, "threshold out of range")
 	}
@@ -176,7 +180,7 @@ Examples:
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so every threshold passes.
-			successParts = append(successParts, "no coverable lines changed")
+			successParts = append(successParts, noCoverableLinesChanged)
 		}
 	}
 

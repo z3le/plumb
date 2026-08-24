@@ -12,6 +12,12 @@ import (
 	"github.com/z3le/plumb/internal/report"
 )
 
+// noCoverableLinesChanged is the phrase D-37 prints when a whole diff
+// has nothing coverable to measure, and the phrase D-51 reuses for
+// the same case scoped to one file — one rule, read the same way at
+// both scopes.
+const noCoverableLinesChanged = "no coverable lines changed"
+
 // diffResult holds a diff coverage measurement: the counters that
 // answer --min-diff, plus the reference and merge base that produced
 // them and the files the measurement left out.
@@ -86,6 +92,13 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		}
 
 		covered, total := profile.CoverableChanged(lines, annotated)
+		if total == 0 {
+			// The file is in the profile, but every line the diff
+			// touched in it is Uncoverable: the same D-37 rule as a
+			// whole empty diff, applied one level down (D-51).
+			result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: noCoverableLinesChanged})
+			continue
+		}
 		result.Covered += covered
 		result.Total += total
 	}
@@ -100,6 +113,13 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 	for _, name := range leftover {
 		result.Skipped = append(result.Skipped, report.SkippedFile{Name: name, Reason: "not in the coverage profile"})
 	}
+
+	// Deterministic stderr output: a file-scope skip (encountered in
+	// profile order above) and a not-in-profile skip (already sorted)
+	// interleave here into one alphabetical list.
+	sort.Slice(result.Skipped, func(i, j int) bool {
+		return result.Skipped[i].Name < result.Skipped[j].Name
+	})
 
 	return result, nil
 }

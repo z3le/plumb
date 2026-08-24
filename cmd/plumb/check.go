@@ -153,7 +153,7 @@ Examples:
 	// --diff-base alone also turns diff mode on (D-40), so either flag
 	// reaches this block. 03-01 task 1 requires --diff-base to be
 	// given explicitly; 03-02 adds the default reference.
-	if given["min-diff"] || given["diff-base"] {
+	if given["min-diff"] || given[diffBaseFlagName] {
 		modulePath, moduleRoot, err := resolveModule()
 		if err != nil {
 			return err
@@ -221,7 +221,7 @@ func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs, minDiff *float64, diff
 	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
 	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
 	minDiff = fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)")
-	diffBase = fs.String("diff-base", "", "git reference to diff against")
+	diffBase = addDiffBaseFlag(fs)
 	return minStmts, minFuncs, minDiff, diffBase
 }
 

@@ -41,6 +41,7 @@ Examples:
 	}
 
 	open, out, title := addReportFlags(fs)
+	_, diffBase := addReportDiffFlags(fs)
 
 	if err := parseFlags(fs, before); err != nil {
 		return err
@@ -87,12 +88,29 @@ Examples:
 		return fmt.Errorf("running go test: %w", err)
 	}
 
+	// A caller who types only --diff-base means diff mode (D-40), so
+	// plumb never ignores a flag it was given.
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) {
+		given[f.Name] = true
+	})
+
 	// renderReport is reachable only on this path — the decision to
 	// render is gated on cmd.Run()'s error alone, never on whether
 	// .plumb/coverage.out exists or holds data. go test writes a
 	// complete, valid profile even when a test assertion fails, so a
 	// red run must never render or replace a report (D-09, RUN-05).
-	return renderReport(profilePath, *out, *title, *open, stdout, stderr)
+	//
+	// The profile is written moments before the diff is read on this
+	// path, so the D-45 staleness warning can never fire here (D-41).
+	return renderReport(reportOptions{
+		ProfilePath: profilePath,
+		Out:         *out,
+		Title:       *title,
+		Open:        *open,
+		Diff:        given[diffFlagName] || given[diffBaseFlagName],
+		DiffBase:    *diffBase,
+	}, stdout, stderr)
 }
 
 // goTestArgs builds the go test argv in a fixed order: test,

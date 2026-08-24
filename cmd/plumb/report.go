@@ -150,6 +150,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
 		buildOpts.Changed = dr.Changed
 		buildOpts.DiffBase = dr.Base
+		buildOpts.Annotated = dr.Annotated
 		diffSkipped = dr.Skipped
 	}
 

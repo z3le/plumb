@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/z3le/plumb/internal/gittest"
 )
 
 // initFixtureRepo builds a minimal git repository in a fresh temp
@@ -26,21 +26,19 @@ func initFixtureRepo(t *testing.T) (dir, base string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "x.txt"), []byte("one\ntwo\nthree\n"), 0o644))
 	t.Chdir(dir)
 
-	runGit(t, "init", "-q")
-	runGit(t, "config", "user.email", "plumb@example.com")
-	runGit(t, "config", "user.name", "plumb")
-	runGit(t, "add", "-A")
-	runGit(t, "commit", "-q", "-m", "base")
+	gittest.Init(t, ".", "")
+	gittest.CommitAll(t, ".", "base")
 
-	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
-	require.NoError(t, err)
-	return dir, strings.TrimSpace(string(out))
+	return dir, gittest.HeadSHA(t, ".")
 }
+
+// The helpers below name what this package needs and delegate the git
+// plumbing to internal/gittest, which cmd/plumb's tests share. A fix
+// for a git version difference then lands once, not twice.
 
 func runGit(t *testing.T, args ...string) {
 	t.Helper()
-	out, err := exec.Command("git", args...).CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
+	gittest.Run(t, args...)
 }
 
 // runGitIn runs git with args inside dir, without changing the test
@@ -48,27 +46,21 @@ func runGit(t *testing.T, args ...string) {
 // because they build more than one repository per test.
 func runGitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v (dir=%s): %s", args, dir, out)
+	gittest.RunIn(t, dir, args...)
 }
 
 // initRepoAt creates a git repository at dir on the given branch,
 // with one commit, and returns the commit's SHA. Unlike
 // initFixtureRepo, it never calls t.Chdir, so a test can build more
-// than one repository side by side.
+// than one repository side by side. The branch is named explicitly
+// because the D-43 tests depend on it, and git's own default differs
+// between versions and user configurations.
 func initRepoAt(t *testing.T, dir, branch string) string {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644))
-	runGitIn(t, dir, "init", "-q", "-b", branch)
-	runGitIn(t, dir, "config", "user.email", "plumb@example.com")
-	runGitIn(t, dir, "config", "user.name", "plumb")
-	runGitIn(t, dir, "add", "-A")
-	runGitIn(t, dir, "commit", "-q", "-m", "seed")
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
-	require.NoError(t, err)
-	return strings.TrimSpace(string(out))
+	gittest.Init(t, dir, branch)
+	gittest.CommitAll(t, dir, "seed")
+	return gittest.HeadSHA(t, dir)
 }
 
 func TestNewRunnerFindsGit(t *testing.T) {

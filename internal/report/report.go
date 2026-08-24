@@ -42,6 +42,15 @@ type BuildOptions struct {
 	Diff       bool
 	Changed    map[string][]int
 	DiffBase   string
+
+	// Annotated carries source lines a caller has already annotated,
+	// keyed the way the profile names each file. Build reads a file
+	// from disk only when Annotated does not already hold it, so a
+	// diff run annotates each changed file once rather than once here
+	// and once in the caller. An absent key is not an error: Build
+	// falls back to reading the file, which is what a caller that
+	// annotated nothing gets.
+	Annotated map[string][]profile.AnnotatedLine
 }
 
 // NoCoverableLinesChanged is the phrase D-37 prints when a whole diff

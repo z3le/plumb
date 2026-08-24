@@ -68,10 +68,19 @@ func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error
 		// function list. A report shows the files it can show: a build
 		// downloads a profile whose tree is not complete, and one absent
 		// file must not remove every other file from the report.
-		lines, err := profile.Annotate(pp.CoverProfile, diskPath)
-		if err != nil {
-			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
-			continue
+		//
+		// A caller that already annotated this file passes it through
+		// opts.Annotated, so a diff run reads each changed file from
+		// disk once rather than twice. Annotate is deterministic in its
+		// two inputs, so a cached value equals the one this call would
+		// produce.
+		lines, cached := opts.Annotated[pp.FileName]
+		if !cached {
+			lines, err = profile.Annotate(pp.CoverProfile, diskPath)
+			if err != nil {
+				r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
+				continue
+			}
 		}
 
 		funcs, err := profile.WalkFuncs(pp.CoverProfile, diskPath)

@@ -460,3 +460,50 @@ func TestRenderToFile(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// TestBuildReusesAnnotatedLines proves Build reads a source file only
+// when opts.Annotated does not already hold it. A diff run annotates
+// every changed file before Build sees it, and reading each of those
+// files a second time is pure waste.
+//
+// The test points the module root at a directory with no source in it,
+// so profile.Annotate could not read the file even if Build tried.
+// Build therefore succeeds only by using the supplied annotations, and
+// the same call without them must skip the file instead. That contrast
+// is the whole assertion: a cache the code ignored would fail the
+// first sub-test, and a cache the code required would fail the second.
+func TestBuildReusesAnnotatedLines(t *testing.T) {
+	profiles := loadProfiles(t)
+	fileName := profiles[0].FileName
+
+	// Annotate against the real tree first, so the cache holds exactly
+	// what Build would have produced for itself.
+	diskPath, err := profile.ResolveSafe(fileName, modulePath, moduleRoot)
+	require.NoError(t, err)
+	realLines, err := profile.Annotate(profiles[0].CoverProfile, diskPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, realLines)
+
+	emptyRoot := t.TempDir()
+
+	t.Run("supplied annotations are used, so an unreadable file still renders", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: emptyRoot,
+			Annotated: map[string][]profile.AnnotatedLine{fileName: realLines},
+		})
+		require.NoError(t, err)
+		require.Len(t, r.Files, 1, "Build should have used the supplied annotations")
+		require.Empty(t, r.Skipped)
+		require.Len(t, r.Files[0].Lines, len(realLines))
+	})
+
+	t.Run("without them Build reads the file and skips what it cannot read", func(t *testing.T) {
+		r, err := Build(profiles, BuildOptions{
+			ModulePath: modulePath, ModuleRoot: emptyRoot,
+		})
+		require.NoError(t, err)
+		require.Empty(t, r.Files)
+		require.Len(t, r.Skipped, 1, "an unreadable file with no cached annotation must be skipped")
+		require.Equal(t, fileName, r.Skipped[0].Name)
+	})
+}

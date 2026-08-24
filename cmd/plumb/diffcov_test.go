@@ -4,7 +4,6 @@ package main
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/z3le/plumb/internal/gittest"
 )
 
 // initFixtureRepo copies testdata/fixturemod into a fresh temp
@@ -32,34 +32,33 @@ func initFixtureRepo(t *testing.T) (dir, base string) {
 	return dir, headSHA(t)
 }
 
-// commitAll stages every file in the current working directory and
-// commits it. The email and name are fixed values: the fixture
-// repository has no real author, only a commit git will accept.
+// The helpers below name what this package needs and delegate the git
+// plumbing to internal/gittest, which internal/gitdiff's tests share.
+// A fix for a git version difference then lands once, not twice.
+
+// commitAll initialises the repository in the current working
+// directory if it is not one already, then stages every file and
+// commits it. git init is safe to repeat, so a test may call this more
+// than once.
 func commitAll(t *testing.T, message string) {
 	t.Helper()
-	runGit(t, "init", "-q")
-	runGit(t, "config", "user.email", "plumb@example.com")
-	runGit(t, "config", "user.name", "plumb")
-	runGit(t, "add", "-A")
-	runGit(t, "commit", "-q", "-m", message)
+	gittest.Init(t, ".", "")
+	gittest.CommitAll(t, ".", message)
 }
 
 func headSHA(t *testing.T) string {
 	t.Helper()
-	return strings.TrimSpace(runGitOutput(t, "rev-parse", "HEAD"))
+	return gittest.HeadSHA(t, ".")
 }
 
 func runGit(t *testing.T, args ...string) {
 	t.Helper()
-	out, err := exec.Command("git", args...).CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
+	gittest.Run(t, args...)
 }
 
 func runGitOutput(t *testing.T, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", args...).Output()
-	require.NoError(t, err)
-	return string(out)
+	return gittest.Output(t, args...)
 }
 
 var diffPctRE = regexp.MustCompile(`([0-9]+\.[0-9]% diff)`)

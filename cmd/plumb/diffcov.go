@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/z3le/plumb/internal/gitdiff"
 	"github.com/z3le/plumb/internal/profile"
@@ -33,6 +31,13 @@ type diffResult struct {
 	Total     int
 	Skipped   []report.SkippedFile
 	Changed   map[string][]int
+
+	// Annotated holds the source lines this function already read and
+	// annotated, one entry per changed file it measured. report.Build
+	// reuses them rather than reading each file a second time; a
+	// caller that never builds a report (plumb check) simply ignores
+	// the field.
+	Annotated map[string][]profile.AnnotatedLine
 }
 
 // Pct returns the diff coverage percentage and true when Total is
@@ -92,7 +97,12 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		return nil, err
 	}
 
-	result := &diffResult{Base: resolvedBase, MergeBase: mergeBase, Changed: changedByName}
+	result := &diffResult{
+		Base:      resolvedBase,
+		MergeBase: mergeBase,
+		Changed:   changedByName,
+		Annotated: make(map[string][]profile.AnnotatedLine, len(changedByName)),
+	}
 
 	// remaining tracks which changed files this loop has matched
 	// against the profile, so the leftover keys after the loop are the
@@ -103,15 +113,8 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 	remaining := maps.Clone(changedByName)
 
 	// Stat the profile once, before the file loop, and hold its
-	// modification time. A profile plumb cannot stat produces no
-	// staleness entries at all rather than an error: the run already
-	// succeeded once to produce the profiles this function was called
-	// with, and a stat failure here would fail a build for a reason
-	// unrelated to coverage (D-45).
-	var profileModTime time.Time
-	if info, statErr := os.Stat(profilePath); statErr == nil {
-		profileModTime = info.ModTime()
-	}
+	// modification time (D-45).
+	profileModTime := profile.ProfileModTime(profilePath)
 
 	for _, pp := range profiles {
 		lines, ok := changedByName[pp.FileName]
@@ -128,20 +131,20 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		// D-44 makes the working tree the thing plumb diffs, so an
 		// edit after a test run is the common local case. Name the
 		// file and keep going: the caveat sits beside the number, not
-		// in place of it, so the counters below are unaffected. A stat
-		// error here is swallowed, not returned — an unreadable file
-		// is already covered by the absent-file reason, and Annotate
-		// below will report it if it truly cannot be read.
-		if !profileModTime.IsZero() {
-			if info, statErr := os.Stat(diskPath); statErr == nil && info.ModTime().After(profileModTime) {
-				result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: "newer than the profile"})
-			}
+		// in place of it, so the counters below are unaffected.
+		if profile.StaleAgainst(profileModTime, diskPath) {
+			result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: profile.StaleReason})
 		}
 
 		annotated, err := profile.Annotate(pp.CoverProfile, diskPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading source for %s: %w", pp.FileName, err)
 		}
+
+		// Record before the D-51 branch below returns early: the file
+		// was read either way, so the report must not read it again
+		// just because it carried no coverable changed line.
+		result.Annotated[pp.FileName] = annotated
 
 		covered, total := profile.CoverableChanged(lines, annotated)
 		if total == 0 {

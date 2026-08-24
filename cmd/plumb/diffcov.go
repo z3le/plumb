@@ -39,10 +39,20 @@ func (d *diffResult) Pct() (float64, bool) {
 	return float64(d.Covered) / float64(d.Total) * 100, true
 }
 
-// diffCoverage resolves the merge base of base against HEAD, reads
-// the lines that changed since it, and intersects them with the
-// coverage profiles to produce a diffResult.
+// diffCoverage resolves base to a reference (D-43 when base is
+// empty), computes its merge base against HEAD, reads the lines that
+// changed since it, and intersects them with the coverage profiles
+// to produce a diffResult.
 func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, base string) (*diffResult, error) {
+	// A --diff-base value that begins with a hyphen would be read by
+	// git as an option rather than a revision, and merge-base accepts
+	// no end-of-options separator to defend against that. Refuse it
+	// here, before any git argv is built and before any git process
+	// starts (T-03-01).
+	if strings.HasPrefix(base, "-") {
+		return nil, &gitdiff.BadRefError{Ref: base, Stderr: "the value looks like a flag; a reference must not begin with a hyphen"}
+	}
+
 	runner, err := gitdiff.NewRunner(".")
 	if err != nil {
 		return nil, err
@@ -53,7 +63,12 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		return nil, err
 	}
 
-	mergeBase, err := runner.MergeBase(base)
+	resolvedBase, err := runner.ResolveBase(base)
+	if err != nil {
+		return nil, err
+	}
+
+	mergeBase, err := runner.MergeBase(resolvedBase)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +88,7 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 		return nil, err
 	}
 
-	result := &diffResult{Base: base, MergeBase: mergeBase}
+	result := &diffResult{Base: resolvedBase, MergeBase: mergeBase}
 
 	for _, pp := range profiles {
 		lines, ok := changedByName[pp.FileName]

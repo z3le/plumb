@@ -453,3 +453,34 @@ func TestCheckMinStatementsAndMinDiffFailTogether(t *testing.T) {
 	require.Contains(t, failureLines[0], "--min-statements")
 	require.Contains(t, failureLines[1], "--min-diff")
 }
+
+// TestCheckMinDiffFileNotInProfile proves D-38: a changed, non-test
+// .go file the profile does not mention writes one stderr line and
+// leaves both sides of the ratio alone. The profile here is real, not
+// broken — it was generated a moment before the new file existed, the
+// ordinary case for a file created after the last coverage run.
+func TestCheckMinDiffFileNotInProfile(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	// A content-only edit — same line count — so the profile
+	// generated a moment ago still lines up with this file.
+	calcPath := filepath.Join(dir, "calc", "calc.go")
+	src, err := os.ReadFile(calcPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src), "return a + b\n", "return b + a\n", 1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the line this edit replaces")
+	require.NoError(t, os.WriteFile(calcPath, []byte(edited), 0o644))
+
+	newFile := filepath.Join(dir, "calc", "extra.go")
+	require.NoError(t, os.WriteFile(newFile, []byte("package calc\n\n// Extra is new in this change and predates the coverage run above.\nfunc Extra(n int) int {\n\treturn n\n}\n"), 0o644))
+	runGit(t, "add", "-A")
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "0"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stderr.String(), "calc/extra.go: not in the coverage profile")
+	require.Contains(t, stdout.String(), "100.0% diff")
+}

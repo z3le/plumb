@@ -26,7 +26,6 @@ var hunkHeaderRE = regexp.MustCompile(`^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0
 func ParseHunks(diff string) (map[string][]int, error) {
 	changed := make(map[string][]int)
 	var current string
-	var fileGone bool
 
 	for _, line := range strings.Split(diff, "\n") {
 		switch {
@@ -35,18 +34,20 @@ func ParseHunks(diff string) (map[string][]int, error) {
 			// 100%-similarity rename — must contribute nothing rather
 			// than attach its absence to the file before it.
 			current = ""
-			fileGone = false
 		case strings.HasPrefix(line, "+++ "):
 			path := strings.TrimPrefix(line, "+++ ")
+			// A deleted file has no new-side path, so it names no
+			// file for the hunks that follow (DIFF-03).
 			if path == "/dev/null" {
 				current = ""
-				fileGone = true
 				continue
 			}
 			current = strings.TrimPrefix(path, "b/")
-			fileGone = false
 		case strings.HasPrefix(line, "@@"):
-			if fileGone || current == "" {
+			// No named file: a header block with no "+++" line yet,
+			// or a deleted file. Either way the hunk belongs to no
+			// file this function reports.
+			if current == "" {
 				continue
 			}
 			m := hunkHeaderRE.FindStringSubmatch(line)

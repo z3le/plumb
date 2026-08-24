@@ -50,10 +50,7 @@ Examples:
 
 	// A caller who types only --diff-base means diff mode (D-40), so
 	// plumb never ignores a flag it was given.
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) {
-		given[f.Name] = true
-	})
+	given := flagsGiven(fs)
 
 	return renderReport(reportOptions{
 		ProfilePath: profilePath,
@@ -196,7 +193,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so the phrase replaces the number.
-			diffPart = noCoverableLinesChanged + ", "
+			diffPart = report.NoCoverableLinesChanged + ", "
 		}
 	}
 

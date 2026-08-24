@@ -90,10 +90,7 @@ Examples:
 
 	// A caller who types only --diff-base means diff mode (D-40), so
 	// plumb never ignores a flag it was given.
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) {
-		given[f.Name] = true
-	})
+	given := flagsGiven(fs)
 
 	// renderReport is reachable only on this path — the decision to
 	// render is gated on cmd.Run()'s error alone, never on whether

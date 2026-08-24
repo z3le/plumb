@@ -175,12 +175,6 @@ plumb report coverage.out --out report.html
 
 <img width="1131" height="1037" alt="image" src="https://github.com/user-attachments/assets/a7eb9c09-6bed-49a4-8d76-3f65fd029d1b" />
 
-## Roadmap
-
-- [x] Diff coverage — show coverage only on lines changed since a git ref
-- [ ] Branch coverage — AST-based approximation
-- [x] `plumb check` — CI threshold enforcement
-
 ## License
 
 MIT

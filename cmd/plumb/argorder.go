@@ -84,3 +84,19 @@ func reorderArgs(fs *flag.FlagSet, args []string) []string {
 	}
 	return append(flags, positional...)
 }
+
+// flagsGiven returns the set of flag names the caller actually typed.
+// A flag left at its default is absent from the map, so a command can
+// tell "not given" from "given the zero value" — the technique D-33
+// needs for the threshold guards and D-40 needs to know that
+// --diff-base alone means diff mode. A sentinel default would break
+// the moment a caller typed the sentinel; fs.Visit does not have that
+// failure mode. Call it after parseFlags: fs.Visit reports nothing
+// before the parse runs.
+func flagsGiven(fs *flag.FlagSet) map[string]bool {
+	given := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		given[f.Name] = true
+	})
+	return given
+}

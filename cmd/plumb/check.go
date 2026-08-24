@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
+	"github.com/z3le/plumb/internal/report"
 )
 
 // checkCmd reads a coverage profile and fails the build when
@@ -47,10 +48,24 @@ Examples:
 	// caller cannot pass a threshold by typing the zero-value default
 	// (D-33). A sentinel default would break the moment a caller typed
 	// the sentinel; Visit does not have that failure mode.
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) {
-		given[f.Name] = true
-	})
+	given := flagsGiven(fs)
+
+	// --min-functions and --min-diff both need the module, and a run
+	// that asks for both would otherwise walk the tree for go.mod and
+	// parse it twice. Resolve it at most once, and only when a
+	// threshold that needs it was given: a statement-only check must
+	// still run against a downloaded profile with no source tree
+	// present (D-18).
+	var modulePath, moduleRoot string
+	var moduleErr error
+	moduleResolved := false
+	module := func() (string, string, error) {
+		if !moduleResolved {
+			modulePath, moduleRoot, moduleErr = resolveModule()
+			moduleResolved = true
+		}
+		return modulePath, moduleRoot, moduleErr
+	}
 
 	// --min-diff also satisfies this guard (D-39): a caller who wants
 	// only the diff percentage runs "plumb check --min-diff 0" with no
@@ -125,7 +140,7 @@ Examples:
 	}
 
 	if given["min-functions"] {
-		modulePath, moduleRoot, err := resolveModule()
+		modulePath, moduleRoot, err := module()
 		if err != nil {
 			return err
 		}
@@ -152,7 +167,7 @@ Examples:
 	// reaches this block. 03-01 task 1 requires --diff-base to be
 	// given explicitly; 03-02 adds the default reference.
 	if given["min-diff"] || given[diffBaseFlagName] {
-		modulePath, moduleRoot, err := resolveModule()
+		modulePath, moduleRoot, err := module()
 		if err != nil {
 			return err
 		}
@@ -180,7 +195,7 @@ Examples:
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so every threshold passes.
-			successParts = append(successParts, noCoverableLinesChanged)
+			successParts = append(successParts, report.NoCoverableLinesChanged)
 		}
 	}
 

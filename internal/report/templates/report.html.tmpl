@@ -119,7 +119,7 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
     {{ if .Diff }}
     <div class="stat">
       <span class="stat-label">Diff</span>
-      <span class="stat-value {{ if .DiffMeasured }}{{ pctClass .DiffPct }}{{ end }}">{{ if .DiffMeasured }}{{ printf "%.1f" .DiffPct }}%{{ else }}no coverable lines changed{{ end }}</span>
+      <span class="stat-value {{ if .DiffMeasured }}{{ pctClass .DiffPct }}{{ end }}">{{ if .DiffMeasured }}{{ printf "%.1f" .DiffPct }}%{{ else }}{{ noCoverableLines }}{{ end }}</span>
     </div>
     {{ end }}
     <div class="stat">

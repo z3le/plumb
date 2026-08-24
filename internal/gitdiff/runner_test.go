@@ -409,3 +409,34 @@ func TestRunnerResolveBaseNoCandidateResolves(t *testing.T) {
 	var badRef *BadRefError
 	require.False(t, errors.As(err, &badRef), "the chain-exhausted error is a plain error, not a coded git failure")
 }
+
+// TestRunnerRejectsFlagLikeRefWithoutGit proves T-03-01 is defended by
+// this package, not by one caller. Every method that puts a
+// caller-supplied reference in an argv must refuse a leading hyphen.
+// The Runner points at a directory that is not a repository and holds
+// a git path that does not exist, so any method that reached a
+// subprocess would fail for a different reason than the one asserted
+// here — the check must happen before the argv is built.
+func TestRunnerRejectsFlagLikeRefWithoutGit(t *testing.T) {
+	r := &Runner{git: "/nonexistent/git", dir: t.TempDir()}
+
+	const ref = "--upload-pack=touch/pwned"
+	calls := map[string]func() (string, error){
+		"MergeBase": func() (string, error) { return r.MergeBase(ref) },
+		"Verify":    func() (string, error) { return r.Verify(ref) },
+		"Diff":      func() (string, error) { return r.Diff(ref) },
+	}
+
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			_, err := call()
+			require.Error(t, err)
+
+			var badRef *BadRefError
+			require.True(t, errors.As(err, &badRef),
+				"%s must refuse a flag-like reference itself (T-03-01), got %v", name, err)
+			require.Equal(t, ref, badRef.Ref)
+			require.Contains(t, badRef.Stderr, "must not begin with a hyphen")
+		})
+	}
+}

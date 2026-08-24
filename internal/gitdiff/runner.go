@@ -81,6 +81,24 @@ func (e *BadRefError) Error() string {
 	return fmt.Sprintf("reference %q does not resolve", e.Ref)
 }
 
+// flagLikeRef is the message a reference that begins with a hyphen
+// carries. git would read such a value as an option rather than a
+// revision (T-03-01).
+const flagLikeRef = "the value looks like a flag; a reference must not begin with a hyphen"
+
+// checkRef rejects a reference that git would read as an option. Diff
+// defends itself with a trailing "--" separator, but merge-base and
+// rev-parse accept no end-of-options separator, so this package makes
+// the check itself rather than trusting each caller to make it first.
+// Every method that puts a caller-supplied reference in an argv calls
+// this before it builds one.
+func checkRef(ref string) error {
+	if strings.HasPrefix(ref, "-") {
+		return &BadRefError{Ref: ref, Stderr: flagLikeRef}
+	}
+	return nil
+}
+
 // NoMergeBaseError reports that base and HEAD share no reachable
 // common ancestor. git writes nothing at all for this case — an
 // empty stdout and an empty stderr, confirmed against real git
@@ -109,6 +127,9 @@ func (e *NoMergeBaseError) Error() string {
 // simplify this branch back into a plain stderr relay — for the
 // second case there is no stderr to relay.
 func (r *Runner) MergeBase(base string) (string, error) {
+	if err := checkRef(base); err != nil {
+		return "", err
+	}
 	out, exitErr, err := r.runOutput("merge-base", base, "HEAD")
 	if err != nil {
 		return "", err
@@ -133,11 +154,14 @@ func (r *Runner) MergeBase(base string) (string, error) {
 
 // Diff returns the unified, zero-context diff between rev and the
 // working tree. The trailing "--" end-of-options separator keeps rev
-// from ever being read as a flag (T-03-01); cmd/plumb/diffcov.go
-// additionally rejects a leading-hyphen reference before it reaches
-// any Runner method at all, because merge-base (unlike Diff) accepts
-// no end-of-options separator to defend it.
+// from ever being read as a flag, and checkRef rejects a leading
+// hyphen before that (T-03-01). Diff holds both because the separator
+// defends the argv shape and checkRef defends every method, including
+// the ones no separator can defend.
 func (r *Runner) Diff(rev string) (string, error) {
+	if err := checkRef(rev); err != nil {
+		return "", err
+	}
 	out, exitErr, err := r.runOutput("diff", "--unified=0", rev, "--")
 	if err != nil {
 		return "", err
@@ -168,6 +192,9 @@ func (r *Runner) RemoteHead() (string, error) {
 // Verify resolves ref to the commit it names. A reference that does
 // not resolve returns a BadRefError carrying git's own stderr text.
 func (r *Runner) Verify(ref string) (string, error) {
+	if err := checkRef(ref); err != nil {
+		return "", err
+	}
 	out, exitErr, err := r.runOutput("rev-parse", "--verify", ref+"^{commit}")
 	if err != nil {
 		return "", err

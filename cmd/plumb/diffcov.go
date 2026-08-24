@@ -17,12 +17,6 @@ import (
 	"github.com/z3le/plumb/internal/report"
 )
 
-// noCoverableLinesChanged is the phrase D-37 prints when a whole diff
-// has nothing coverable to measure, and the phrase D-51 reuses for
-// the same case scoped to one file — one rule, read the same way at
-// both scopes.
-const noCoverableLinesChanged = "no coverable lines changed"
-
 // diffResult holds a diff coverage measurement: the counters that
 // answer --min-diff, plus the reference and merge base that produced
 // them and the files the measurement left out. Changed maps every
@@ -59,14 +53,10 @@ func (d *diffResult) Pct() (float64, bool) {
 // modification time to the profile's own (D-45).
 func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, base, profilePath string) (*diffResult, error) {
 	// A --diff-base value that begins with a hyphen would be read by
-	// git as an option rather than a revision, and merge-base accepts
-	// no end-of-options separator to defend against that. Refuse it
-	// here, before any git argv is built and before any git process
-	// starts (T-03-01).
-	if strings.HasPrefix(base, "-") {
-		return nil, &gitdiff.BadRefError{Ref: base, Stderr: "the value looks like a flag; a reference must not begin with a hyphen"}
-	}
-
+	// git as an option rather than a revision. internal/gitdiff refuses
+	// such a value in every method that puts a reference in an argv, so
+	// the guard travels with the danger and no caller has to remember
+	// it (T-03-01).
 	runner, err := gitdiff.NewRunner(".")
 	if err != nil {
 		return nil, err
@@ -158,7 +148,7 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 			// The file is in the profile, but every line the diff
 			// touched in it is Uncoverable: the same D-37 rule as a
 			// whole empty diff, applied one level down (D-51).
-			result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: noCoverableLinesChanged})
+			result.Skipped = append(result.Skipped, report.SkippedFile{Name: pp.FileName, Reason: report.NoCoverableLinesChanged})
 			continue
 		}
 		result.Covered += covered

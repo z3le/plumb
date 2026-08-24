@@ -25,6 +25,10 @@ var tmpl = template.Must(
 		"pctClass": pctClass,
 		"fileID":   fileID,
 		"printf":   fmt.Sprintf,
+		// noCoverableLines gives the template the same constant the Go
+		// code prints, so the phrase has one definition and the HTML
+		// cannot drift from the terminal output (D-37, D-51).
+		"noCoverableLines": func() string { return NoCoverableLinesChanged },
 	}).ParseFS(templateFS, "templates/report.html.tmpl"),
 )
 
@@ -32,13 +36,6 @@ var tmpl = template.Must(
 func fileID(name string) string {
 	return fmt.Sprintf("f%x", md5.Sum([]byte(name)))
 }
-
-// noCoverableLinesChanged is the phrase D-51 reuses from D-37 at file
-// scope: a changed file the profile mentions whose changed lines are
-// all Uncoverable carries no number, so it joins Skipped with this
-// reason instead of Files. Read the same sentence
-// cmd/plumb/diffcov.go prints at whole-diff scope.
-const noCoverableLinesChanged = "no coverable lines changed"
 
 // Build constructs a Report from parsed coverage profiles. See
 // BuildOptions for the fields it reads.
@@ -161,7 +158,7 @@ func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error
 			// name it in Skipped with the same phrase D-37 prints at
 			// whole-diff scope — one rule, read the same at both
 			// scopes (D-51).
-			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: noCoverableLinesChanged})
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: NoCoverableLinesChanged})
 		}
 	}
 

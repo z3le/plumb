@@ -44,6 +44,13 @@ type BuildOptions struct {
 	DiffBase   string
 }
 
+// NoCoverableLinesChanged is the phrase D-37 prints when a whole diff
+// has nothing coverable to measure, and the phrase D-51 reuses for the
+// same case scoped to one file — one rule, read the same way at both
+// scopes. It is exported so cmd/plumb prints the same words this
+// package renders, and so the two can never drift apart.
+const NoCoverableLinesChanged = "no coverable lines changed"
+
 // SkippedFile records a file the report left out, and why. A caller
 // reports these so a missing file is visible, not silent.
 type SkippedFile struct {

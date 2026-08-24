@@ -1,36 +1,79 @@
 name: release
+
+# A release is an act you take, not a side effect of a push. Tag the
+# commit you want to release and push the tag:
+#
+#   edit VERSION, write the CHANGELOG section, commit
+#   git tag v0.1.4 && git push origin v0.1.4
+#
+# The tag is the released tree, so the tag can never name a commit
+# other than the one this job builds.
 on:
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main, master]
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
 
+# Two tags pushed together must not build at the same time and race
+# on the same release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
           cache: true
 
-      - name: Bump patch version
+      # The tag and the VERSION file must agree. A binary that reports
+      # a version other than its own tag is worse than a failed build.
+      - name: Check the tag against VERSION
         run: |
-          VERSION=$(cat VERSION | tr -d '[:space:]')
-          MAJOR=$(echo "$VERSION" | cut -d. -f1)
-          MINOR=$(echo "$VERSION" | cut -d. -f2)
-          PATCH=$(echo "$VERSION" | cut -d. -f3)
-          NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          echo "$NEW_VERSION" > VERSION
-          echo "VERSION=v${NEW_VERSION}" >> "$GITHUB_ENV"
+          TAG="${GITHUB_REF_NAME}"
+          FILE_VERSION="v$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG" != "$FILE_VERSION" ]; then
+            echo "::error::Tag ${TAG} does not match VERSION (${FILE_VERSION}). Update VERSION, commit, then move the tag."
+            exit 1
+          fi
+          echo "VERSION=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+
+      # plumb gates its own release on its own coverage.
+      - name: Coverage gate
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go build -o plumb-gate ./cmd/plumb
+          ./plumb-gate check coverage.out --min-statements 85
+          rm -f plumb-gate coverage.out
+
+      # The notes are the CHANGELOG section a human wrote for this
+      # version. A commit message is internal reasoning, not a release
+      # note, so this job never writes the CHANGELOG itself.
+      - name: Take the release notes from the CHANGELOG
+        run: |
+          awk -v want="## ${VERSION} " '
+            index($0, want) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release_notes.md
+
+          if [ ! -s /tmp/release_notes.md ]; then
+            echo "::error::CHANGELOG.md holds no section for ${VERSION}. Write the notes before you tag."
+            exit 1
+          fi
+          echo "Release notes for ${VERSION}:"
+          cat /tmp/release_notes.md
 
       - name: Build binaries
         run: |
@@ -42,38 +85,9 @@ jobs:
           GOOS=darwin  GOARCH=arm64  go build -ldflags "${LDFLAGS}" -o dist/plumb-darwin-arm64      ./cmd/plumb
           GOOS=windows GOARCH=amd64  go build -ldflags "${LDFLAGS}" -o dist/plumb-windows-amd64.exe ./cmd/plumb
 
-      - name: Update CHANGELOG
-        run: |
-          DATE=$(date +%Y-%m-%d)
-          SUBJECT=$(git log -1 --pretty=format:"%s")
-          BODY=$(git log -1 --pretty=format:"%b")
-
-          {
-            echo "## ${VERSION} (${DATE})"
-            echo ""
-            echo "- ${SUBJECT}"
-            if [ -n "${BODY}" ]; then
-              echo ""
-              echo "${BODY}"
-            fi
-          } > /tmp/release_notes.md
-
-          {
-            cat /tmp/release_notes.md
-            echo ""
-            cat CHANGELOG.md
-          } > /tmp/CHANGELOG.md
-          mv /tmp/CHANGELOG.md CHANGELOG.md
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION CHANGELOG.md
-          git commit -m "chore: release ${VERSION} [skip ci]"
-          git push
-
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: ${{ env.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           body_path: /tmp/release_notes.md
           files: dist/*

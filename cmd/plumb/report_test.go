@@ -221,3 +221,45 @@ func TestReportDiffEmptyDiffPrintsPhrase(t *testing.T) {
 	require.Equal(t, 0, code, "stderr=%s", stderr.String())
 	require.Contains(t, stdout.String(), "no coverable lines changed")
 }
+
+// report.Build and diffCoverage both apply the D-51 rule, so both report
+// the same file. D-48 promises one entry per file, and a Contains check
+// passes on a duplicate, so this test counts instead. It covers the
+// merged list, which no test in internal/report can reach: Build's own
+// list is correct, and only the merge in renderReport can duplicate.
+func TestReportDiffSkipsEachFileOnce(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	calcPath := filepath.Join(dir, "calc", "calc.go")
+	src, err := os.ReadFile(calcPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src), "// Add returns a plus b.", "// Add returns the sum of a and b.", 1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the comment this edit replaces")
+	require.NoError(t, os.WriteFile(calcPath, []byte(edited), 0o644))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	outPath := filepath.Join(dir, "dedup.html")
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"report", "--diff", "--diff-base", base, "--out", outPath}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+
+	// The fixture changes one comment line in calc.go, so calc.go is the
+	// one file the D-51 rule drops. It must appear once, not twice.
+	//
+	// Count the skip entry, not the phrase. D-37 puts the same words in
+	// the summary line in place of a percentage, and that use is correct
+	// and separate — a test that counts the phrase alone would fail on
+	// it and hide what it was written to catch.
+	const skipEntry = "skipped example.com/fixturemod/calc/calc.go: no coverable lines changed"
+	combined := stdout.String() + stderr.String()
+	require.Equal(t, 1, strings.Count(combined, skipEntry),
+		"D-48 wants one entry per file; command output was:\n%s", combined)
+
+	// The HTML carries the skip list as its own block, so the file name
+	// and the reason must pair exactly once there too.
+	html, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(string(html), "example.com/fixturemod/calc/calc.go"),
+		"D-48 wants one entry per file in the HTML report too")
+}

@@ -161,7 +161,24 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("building report: %w", err)
 	}
-	r.Skipped = append(r.Skipped, diffSkipped...)
+	// Build and diffCoverage both apply the D-51 rule, because each one
+	// serves a path the other does not: Build owns the HTML file list,
+	// and diffCoverage serves `check`, which never calls Build. So both
+	// report the same file, and a plain append lists it twice. Merge on
+	// the file name to keep the D-48 promise of one entry per file.
+	// Build's own reason wins, because Build knows why it dropped the
+	// file from the report.
+	seen := make(map[string]bool, len(r.Skipped))
+	for _, s := range r.Skipped {
+		seen[s.Name] = true
+	}
+	for _, s := range diffSkipped {
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		r.Skipped = append(r.Skipped, s)
+	}
 
 	// diffPart, when diff mode is on, is the diff percentage phrase
 	// that leads the summary line, with its own trailing separator.

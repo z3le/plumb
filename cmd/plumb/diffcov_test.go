@@ -36,7 +36,7 @@ func initFixtureRepo(t *testing.T) (dir, base string) {
 // plumbing to internal/gittest, which internal/gitdiff's tests share.
 // A fix for a git version difference then lands once, not twice.
 
-// commitAll initialises the repository in the current working
+// commitAll initializes the repository in the current working
 // directory if it is not one already, then stages every file and
 // commits it. git init is safe to repeat, so a test may call this more
 // than once.

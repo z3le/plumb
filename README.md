@@ -171,9 +171,15 @@ plumb report coverage.out --out report.html
 - Dark mode via `prefers-color-scheme`
 - Single self-contained HTML file — no external requests
 
-## How does the report look like
+## Documentation
 
-<img width="1131" height="1037" alt="image" src="https://github.com/user-attachments/assets/a7eb9c09-6bed-49a4-8d76-3f65fd029d1b" />
+- [Architecture](docs/ARCHITECTURE.md) — how the pieces of `plumb` fit together
+- [Getting Started](docs/GETTING-STARTED.md) — install `plumb` and produce your first report
+- [Development](docs/DEVELOPMENT.md) — build, lint, and work on `plumb` itself
+- [Testing](docs/TESTING.md) — run and write tests for `plumb`
+- [Configuration](docs/CONFIGURATION.md) — every flag, its default, and the exit codes
+- [Deployment](docs/DEPLOYMENT.md) — use `plumb` in CI
+- [Contributing](CONTRIBUTING.md) — how to submit a change
 
 ## License
 

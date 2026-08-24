@@ -359,20 +359,20 @@ func TestRenderDiffModeMarksChangedLine(t *testing.T) {
 	require.False(t, unchangedRow.MatchString(html), "line 1 (unchanged) must not carry the changed class")
 }
 
-func TestRenderDiffModeLeadsWithThreeLabelledStats(t *testing.T) {
+func TestRenderDiffModeLeadsWithThreeLabeledStats(t *testing.T) {
 	html := renderToString(t, diffModeReport())
 
 	// Count rendered <span class="stat-label">...</span> elements, not
 	// the bare substring: the always-present ".stat-label { ... }" CSS
 	// rule in <style> also contains the text "stat-label".
-	require.Equal(t, 3, strings.Count(html, `<span class="stat-label">`), "diff mode must show three labelled stats")
+	require.Equal(t, 3, strings.Count(html, `<span class="stat-label">`), "diff mode must show three labeled stats")
 	diffFirst := regexp.MustCompile(`(?s)<span class="stat-label">Diff</span>.*<span class="stat-label">Statements</span>`)
 	require.Regexp(t, diffFirst, html, "the diff stat must lead, before Statements and Functions")
 	require.Contains(t, html, `<span class="stat-label">Statements</span>`)
 	require.Contains(t, html, `<span class="stat-label">Functions</span>`)
 }
 
-func TestRenderNoDiffFlagShowsTwoLabelledStats(t *testing.T) {
+func TestRenderNoDiffFlagShowsTwoLabeledStats(t *testing.T) {
 	r := &Report{Title: "test", StmtPct: 75.5, FuncPct: 60.0}
 	html := renderToString(t, r)
 

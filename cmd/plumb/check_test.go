@@ -72,7 +72,7 @@ func TestCheckUsageErrors(t *testing.T) {
 		args       []string
 		wantStderr []string
 	}{
-		{name: "no threshold flag", args: []string{"check", halfProfile}, wantStderr: []string{"--min-statements", "--min-functions"}},
+		{name: "no threshold flag", args: []string{"check", halfProfile}, wantStderr: []string{"--min-statements", "--min-functions", "--min-diff"}},
 		{name: "min-statements below range", args: []string{"check", halfProfile, "--min-statements", "-0.1"}, wantStderr: []string{"--min-statements"}},
 		{name: "min-statements above range", args: []string{"check", halfProfile, "--min-statements", "100.1"}, wantStderr: []string{"--min-statements"}},
 		{name: "min-statements NaN", args: []string{"check", halfProfile, "--min-statements", "NaN"}, wantStderr: []string{"--min-statements"}},
@@ -81,6 +81,8 @@ func TestCheckUsageErrors(t *testing.T) {
 		{name: "min-functions above range", args: []string{"check", halfProfile, "--min-functions", "100.1"}, wantStderr: []string{"--min-functions"}},
 		{name: "min-functions NaN", args: []string{"check", halfProfile, "--min-functions", "NaN"}, wantStderr: []string{"--min-functions"}},
 		{name: "min-functions Inf", args: []string{"check", halfProfile, "--min-functions", "Inf"}, wantStderr: []string{"--min-functions"}},
+		{name: "min-diff below range", args: []string{"check", halfProfile, "--min-diff", "-0.1"}, wantStderr: []string{"--min-diff"}},
+		{name: "min-diff above range", args: []string{"check", halfProfile, "--min-diff", "100.1"}, wantStderr: []string{"--min-diff"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -355,4 +357,99 @@ func TestCheckDispatchReturnsCodeThroughWrappedError(t *testing.T) {
 
 	code := dispatch([]string{"check", halfProfile, "--min-statements", "50.1"}, &stdout, &stderr)
 	require.Equal(t, 3, code, "a coded error must resolve to its own code, not the generic 1 fallback")
+}
+
+// TestCheckMinDiffThreshold proves D-29 and DIFF-06 for the diff
+// gate: the exit code matches the shape the other two thresholds
+// already use, below and at the bar.
+func TestCheckMinDiffThreshold(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	t.Run("below the bar fails", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "90"}, &stdout, &stderr)
+		require.Equal(t, 3, code)
+		require.Contains(t, stderr.String(), "plumb: diff coverage 50.0%, need 90.0% (--min-diff)")
+	})
+
+	t.Run("at the bar passes", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "50"}, &stdout, &stderr)
+		require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	})
+}
+
+// TestCheckMinDiffEmptyDiff proves D-37: a diff whose only changed
+// line is uncoverable prints the empty-diff phrase and passes any
+// --min-diff threshold.
+func TestCheckMinDiffEmptyDiff(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	calcPath := filepath.Join(dir, "calc", "calc.go")
+	src, err := os.ReadFile(calcPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src), "// Add returns a plus b.", "// Add returns the sum of a and b.", 1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the comment this edit replaces")
+	require.NoError(t, os.WriteFile(calcPath, []byte(edited), 0o644))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "90"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "no coverable lines changed")
+}
+
+// TestCheckMinDiffFileScopeEmpty proves D-51: a changed file the
+// profile mentions, whose changed lines are all uncoverable, drops
+// out of the ratio the same way a whole empty diff does, and names
+// itself on stderr instead of silently vanishing.
+func TestCheckMinDiffFileScopeEmpty(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	splitCoveredLine(t, filepath.Join(dir, "calc", "calc.go"))
+
+	mulPath := filepath.Join(dir, "mul", "mul.go")
+	src, err := os.ReadFile(mulPath)
+	require.NoError(t, err)
+	edited := strings.Replace(string(src), "// Double returns n multiplied by two.", "// Double returns n times two.", 1)
+	require.NotEqual(t, string(src), edited, "expected fixture source to contain the comment this edit replaces")
+	require.NoError(t, os.WriteFile(mulPath, []byte(edited), 0o644))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--diff-base", base, "--min-diff", "0"}, &stdout, &stderr)
+	require.Equal(t, 0, code, "stderr=%s", stderr.String())
+	require.Contains(t, stdout.String(), "100.0% diff")
+	require.Contains(t, stderr.String(), "mul/mul.go: no coverable lines changed")
+}
+
+// TestCheckMinStatementsAndMinDiffFailTogether proves D-24: two
+// failed thresholds produce two failure lines and one exit code, and
+// the lines never merge.
+func TestCheckMinStatementsAndMinDiffFailTogether(t *testing.T) {
+	dir, base := initFixtureRepo(t)
+	addCoveredAndUncoveredFuncs(t, filepath.Join(dir, "calc", "calc.go"), filepath.Join(dir, "calc", "calc_test.go"))
+
+	var runStdout, runStderr bytes.Buffer
+	require.Equal(t, 0, dispatch([]string{"run"}, &runStdout, &runStderr), "stderr=%s", runStderr.String())
+
+	var stdout, stderr bytes.Buffer
+	code := dispatch([]string{"check", "--diff-base", base, "--min-statements", "100", "--min-diff", "90"}, &stdout, &stderr)
+	require.Equal(t, 3, code)
+
+	var failureLines []string
+	for _, l := range strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n") {
+		if strings.Contains(l, ", need ") {
+			failureLines = append(failureLines, l)
+		}
+	}
+	require.Len(t, failureLines, 2)
+	require.Contains(t, failureLines[0], "--min-statements")
+	require.Contains(t, failureLines[1], "--min-diff")
 }

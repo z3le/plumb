@@ -1,3 +1,12 @@
+## Unreleased
+
+### Added
+
+- plumb runs its own action against itself. A new `action` job in
+  `.github/workflows/ci.yml` installs plumb through `action.yml` and asserts
+  the action reports what it measured, so a change that breaks the action
+  fails here rather than on somebody else's build after a release.
+
 ## v0.1.7 (2026-08-25)
 
 ### Fixed

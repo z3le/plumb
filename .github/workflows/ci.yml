@@ -85,3 +85,44 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./...
+
+  # plumb's own action, run against itself. The test job gates plumb with
+  # the binary built from this commit; this job proves action.yml still
+  # installs a released plumb and drives it. "uses: ./" runs the action
+  # file from this branch, so a change that breaks it fails here instead
+  # of on somebody else's build. comment is off — the test job already
+  # comments, and two per push would bury each other.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+      - run: go test -coverprofile=coverage.out ./...
+      - id: plumb
+        uses: ./
+        with:
+          profile: coverage.out
+          min-statements: 85
+          min-diff: 80
+          comment: false
+      - name: The action must report what it measured
+        # Read every value through the environment, never through a shell
+        # interpolation: an expression pasted into a script runs as script.
+        env:
+          PASS: ${{ steps.plumb.outputs.pass }}
+          STATEMENTS: ${{ steps.plumb.outputs.statements }}
+          JSON: ${{ steps.plumb.outputs.json }}
+        run: |
+          set -euo pipefail
+          test "${PASS}" = "true"
+          test -n "${STATEMENTS}"
+          printf '%s' "${JSON}" | jq -e '.statements.coverage' > /dev/null
+          echo "the action reported ${STATEMENTS}% statements"
+          # The diff output is deliberately not asserted non-empty. On a
+          # push to master the merge base is the commit itself, so no
+          # coverable line changed and D-37 reports null rather than 0.

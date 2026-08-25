@@ -1,4 +1,4 @@
-## Unreleased
+## v0.1.5 (2026-08-25)
 
 ### Added
 
@@ -14,6 +14,14 @@
   Pages on every push to master. The live demo and the coverage report are the
   same page. Enable the source once by hand: Settings → Pages → Build and
   deployment → Source → GitHub Actions.
+
+### Changed
+
+- The README leads with diff coverage instead of the HTML report. plumb reads
+  your git history to find the lines a change touched, so it needs no coverage
+  service, no API token, and no stored profile from an earlier build. The
+  README names what each alternative needs that plumb does not, and shows the
+  report in a screenshot linked to a live page.
 
 ### Fixed
 

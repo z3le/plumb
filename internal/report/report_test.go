@@ -507,3 +507,29 @@ func TestBuildReusesAnnotatedLines(t *testing.T) {
 		require.Equal(t, fileName, r.Skipped[0].Name)
 	})
 }
+
+// TestTruncPct proves D-20: a printed percentage never exceeds the raw
+// value it measured. A bare %.1f rounds to nearest, so 79.96 would
+// print as 80.0 beside a build that failed a threshold of 80.
+//
+// Both the terminal line and the HTML page render through this, so the
+// two cannot disagree about the same number in one run.
+func TestTruncPct(t *testing.T) {
+	tests := []struct {
+		name string
+		in   float64
+		want float64
+	}{
+		{name: "rounds up without truncation", in: 79.96, want: 79.9},
+		{name: "just below the next tenth", in: 79.99, want: 79.9},
+		{name: "exact value is unchanged", in: 80.0, want: 80.0},
+		{name: "ordinary value", in: 89.44, want: 89.4},
+		{name: "zero", in: 0, want: 0},
+		{name: "one hundred", in: 100, want: 100},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, TruncPct(tc.in))
+		})
+	}
+}

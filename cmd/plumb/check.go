@@ -4,10 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
+	"github.com/z3le/plumb/internal/report"
 )
 
 // checkCmd reads a coverage profile and fails the build when
@@ -107,17 +107,9 @@ Examples:
 		return newExitError(2, "threshold out of range")
 	}
 
-	profilePath := ".plumb/coverage.out"
-	if fs.NArg() > 0 {
-		profilePath = fs.Arg(0)
-	}
-	// A second positional argument is a mistyped invocation. Fail
-	// loudly: a silently dropped argument lets a gate report a result
-	// for a profile the caller did not name.
-	if fs.NArg() > 1 {
-		fmt.Fprintf(stderr, "plumb: unexpected argument %q, want one profile\n", fs.Arg(1))
-		fs.Usage()
-		return newExitError(2, "unexpected argument")
+	profilePath, err := profileArg(fs, stderr)
+	if err != nil {
+		return err
 	}
 
 	profiles, err := profile.Parse(profilePath)
@@ -150,8 +142,8 @@ Examples:
 			title: "Statements",
 			key:   keyStatements,
 			flag:  "--min-statements",
-			got:   truncPct(pct),
-			want:  truncPct(*cf.minStmts),
+			got:   report.TruncPct(pct),
+			want:  report.TruncPct(*cf.minStmts),
 			pass:  pct >= *cf.minStmts,
 		})
 	}
@@ -178,8 +170,8 @@ Examples:
 			title: "Functions",
 			key:   keyFunctions,
 			flag:  "--min-functions",
-			got:   truncPct(pct),
-			want:  truncPct(*cf.minFuncs),
+			got:   report.TruncPct(pct),
+			want:  report.TruncPct(*cf.minFuncs),
 			pass:  pct >= *cf.minFuncs,
 		})
 	}
@@ -214,9 +206,7 @@ Examples:
 		// below (D-18, D-38). stderr carries it in both formats: a
 		// build log must name a dropped file even when the comment
 		// that quotes the number goes somewhere else.
-		for _, s := range dr.Skipped {
-			fmt.Fprintf(stderr, "plumb: %s: %s\n", s.Name, s.Reason)
-		}
+		printSkipped(stderr, dr.Skipped)
 
 		if pct, ok := dr.Pct(); ok {
 			rep.metrics = append(rep.metrics, metric{
@@ -225,8 +215,8 @@ Examples:
 				title: "Diff",
 				key:   keyDiff,
 				flag:  "--min-diff",
-				got:   truncPct(pct),
-				want:  truncPct(*cf.minDiff),
+				got:   report.TruncPct(pct),
+				want:  report.TruncPct(*cf.minDiff),
 				pass:  pct >= *cf.minDiff,
 			})
 		} else {
@@ -328,20 +318,9 @@ func funcTotals(profiles []*profile.ParsedProfile, modulePath, moduleRoot string
 			return 0, 0, fmt.Errorf("reading source for %s: %w", pp.FileName, err)
 		}
 
-		for _, f := range funcs {
-			total++
-			if f.Count > 0 {
-				covered++
-			}
-		}
+		c, t := profile.FuncTotals(funcs)
+		covered += c
+		total += t
 	}
 	return covered, total, nil
-}
-
-// truncPct truncates a percentage to one decimal place. A bare %.1f
-// rounds to nearest, so 79.96 would print as 80.0 next to a failed
-// build (D-20). Truncating first keeps a printed number from ever
-// exceeding the raw value it measured.
-func truncPct(v float64) float64 {
-	return math.Trunc(v*10) / 10
 }

@@ -192,7 +192,15 @@ func TestRunTooManyPositionalArgs(t *testing.T) {
 
 	err := runCmd([]string{"./...", "extra"}, &stdout, &stderr)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "extra")
+
+	// The message reaches the caller on stderr, and the error carries
+	// only the exit code — the rule every coded error in this package
+	// follows, so dispatch never prints a second copy.
+	var ee *exitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, 2, ee.ExitCode())
+	require.Contains(t, stderr.String(), "extra")
+	require.Contains(t, stderr.String(), "place go test arguments after --")
 
 	_, statErr := os.Stat("coverage.html")
 	require.True(t, os.IsNotExist(statErr))

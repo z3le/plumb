@@ -56,16 +56,15 @@ func (r *checkReport) jsonDoc() (string, error) {
 	doc := jsonReport{Plumb: version, Pass: len(r.failures()) == 0}
 
 	for _, m := range r.metrics {
-		jm := &jsonMetric{Coverage: m.got, Minimum: m.want, Pass: m.pass}
 		switch m.key {
 		case keyStatements:
-			doc.Statements = jm
+			doc.Statements = &jsonMetric{Coverage: m.got, Minimum: m.want, Pass: m.pass}
 		case keyFunctions:
-			doc.Functions = jm
+			doc.Functions = &jsonMetric{Coverage: m.got, Minimum: m.want, Pass: m.pass}
 		case keyDiff:
 			doc.Diff = &jsonDiff{
-				Coverage:  &jm.Coverage,
-				Minimum:   &jm.Minimum,
+				Coverage:  &m.got,
+				Minimum:   &m.want,
 				Pass:      m.pass,
 				Base:      r.diffBase,
 				MergeBase: r.diffMergeBase,

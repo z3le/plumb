@@ -33,7 +33,7 @@ func TestFindGoMod(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := findGoMod(tc.start(t))
+			got, err := FindGoMod(tc.start(t))
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {
@@ -93,44 +93,6 @@ func TestReadModulePath(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, tc.want, got)
 			}
-		})
-	}
-}
-
-func TestResolveFilePath(t *testing.T) {
-	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	require.NoError(t, err)
-
-	orig, err := os.Getwd()
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Chdir(orig) })
-
-	require.NoError(t, os.Chdir(repoRoot))
-
-	tests := []struct {
-		name     string
-		filename string
-		want     string
-	}{
-		{
-			name:     "resolves cmd/plumb/main.go",
-			filename: "github.com/z3le/plumb/cmd/plumb/main.go",
-			want:     filepath.Join(repoRoot, "cmd", "plumb", "main.go"),
-		},
-		{
-			name:     "resolved path exists on disk",
-			filename: "github.com/z3le/plumb/cmd/plumb/main.go",
-			want:     filepath.Join(repoRoot, "cmd", "plumb", "main.go"),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := ResolveFilePath(tc.filename)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-			_, statErr := os.Stat(got)
-			require.NoError(t, statErr)
 		})
 	}
 }

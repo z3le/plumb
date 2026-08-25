@@ -18,6 +18,9 @@ func TestExtraPositionalIsRejected(t *testing.T) {
 	}{
 		{name: "check", args: []string{"check", halfProfile, "extra.out", "--min-statements", "10"}},
 		{name: "report", args: []string{"report", halfProfile, "extra.out"}},
+		// run belongs in this table too. While it was absent, run
+		// answered the same mistake with exit 1 and nothing noticed.
+		{name: "run", args: []string{"run", "./...", "extra.out"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

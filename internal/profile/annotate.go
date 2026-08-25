@@ -68,6 +68,15 @@ func Annotate(p *cover.Profile, diskPath string) ([]AnnotatedLine, error) {
 // internal/report both call it, so the CLI percentage and the HTML
 // percentage can never disagree.
 func CoverableChanged(changed []int, lines []AnnotatedLine) (covered, total int) {
+	// Report.Build calls this for every file in the profile, and passes
+	// a nil slice for each one the diff never named (D-46). Leave before
+	// indexing the file: the loop below would perform no lookup anyway,
+	// and the index costs one map entry per line of every untouched
+	// file in the module.
+	if len(changed) == 0 {
+		return 0, 0
+	}
+
 	byLine := make(map[int]AnnotatedLine, len(lines))
 	for _, l := range lines {
 		byLine[l.Number] = l

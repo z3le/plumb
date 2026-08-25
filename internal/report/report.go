@@ -2,6 +2,7 @@ package report
 
 import (
 	"html/template"
+	"math"
 	"path"
 	"strings"
 
@@ -109,4 +110,18 @@ func shortPkg(name, modulePath string) string {
 		return dir
 	}
 	return strings.Join(parts[len(parts)-2:], "/")
+}
+
+// TruncPct truncates a percentage to one decimal place.
+//
+// A bare %.1f rounds to nearest, so 79.96 would print as 80.0 beside a
+// build that failed a threshold of 80 (D-20). Truncating first keeps a
+// printed number from ever exceeding the raw value it measured.
+//
+// It lives here, not in the command, because the HTML report prints the
+// same numbers the command prints. While the rule lived in cmd only,
+// "plumb report" could write 79.9% to the terminal and 80.0% into the
+// page it wrote in the same run.
+func TruncPct(v float64) float64 {
+	return math.Trunc(v*10) / 10
 }

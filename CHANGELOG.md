@@ -22,6 +22,30 @@
   and `diff.coverage` is `null` when the diff touched no coverable line: a `0`
   there would report a coverage drop that never happened.
 
+### Changed
+
+- `plumb run` exits 2 when it is given a second positional argument, not 1.
+  `plumb report` and `plumb check` already exited 2 for the same mistake, and
+  the exit-code contract puts every wrong call in that class. A pipeline that
+  reads 2 as "called wrong" no longer sees the same mistake two ways depending
+  on the subcommand.
+- A percentage never rounds up past the value it measured, in the HTML report
+  as well as on the terminal. The rule existed for the gate only, so
+  `plumb report` could write `79.9%` to the terminal and `80.0%` into the page
+  it produced in the same run. Both now render through one function.
+- `plumb check` names a file it left out of the diff ratio the same way
+  `plumb report` does: `plumb: skipped <file>: <reason>`. The old form,
+  `plumb: <file>: <reason>`, read as an unlabelled error in a build log.
+
+### Performance
+
+- A report renders about a third faster, and a `--diff` report about twice as
+  fast. plumb asked chroma to match a lexer by file name once per file, which
+  scans the filename globs of every lexer it knows and costs about 4ms; the
+  answer is now resolved once. In diff mode plumb also highlighted every file
+  in the profile before deciding which files the report keeps, so it built
+  HTML for hundreds of files that nothing read. It now decides first.
+
 ## v0.1.5 (2026-08-25)
 
 ### Added

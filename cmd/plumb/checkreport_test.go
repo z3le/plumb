@@ -83,7 +83,7 @@ func TestCheckTextFormatUnchanged(t *testing.T) {
 // error that exits 2 and names both values the flag accepts. It fails
 // before any measurement runs.
 func TestCheckUnknownFormat(t *testing.T) {
-	for _, bad := range []string{"xml", "json", "MARKDOWN", ""} {
+	for _, bad := range []string{"xml", "yml", "MARKDOWN", ""} {
 		t.Run("format="+bad, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := dispatch([]string{"check", halfProfile, "--min-statements", "40", "--format=" + bad}, &stdout, &stderr)

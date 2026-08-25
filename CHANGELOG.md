@@ -1,3 +1,27 @@
+## Unreleased
+
+### Added
+
+- `action.yml` at the repository root makes plumb a GitHub Action. Three lines
+  gate a build and comment on the pull request:
+
+  ```yaml
+        - uses: z3le/plumb@v0.1.6
+          with:
+            profile: coverage.out
+            min-diff: 90
+  ```
+
+  The action downloads the released binary for the runner, so a job spends no
+  time on a Go toolchain or a compile. It sets `pass`, `statements`,
+  `functions`, `diff`, and `json` as outputs. It refuses a shallow clone by
+  name, and tells the caller to add `fetch-depth: 0`, rather than let the
+  default reference fail to resolve later.
+- `plumb check --format=json` writes the result as a JSON document a workflow
+  reads with jq. A metric the run did not gate on is absent rather than zero,
+  and `diff.coverage` is `null` when the diff touched no coverable line: a `0`
+  there would report a coverage drop that never happened.
+
 ## v0.1.5 (2026-08-25)
 
 ### Added

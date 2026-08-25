@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/z3le/plumb/internal/report"
@@ -11,15 +12,17 @@ import (
 // and the value the caller demanded. Both numbers arrive truncated, so
 // a printed number never exceeds the raw value it measured (D-20).
 //
-// The four name fields exist because one metric appears under four
+// The five name fields exist because one metric appears under five
 // spellings: "statement coverage" in a failure line, "89.5% stmts" in
-// the success line, "Statements" in a markdown table, and
-// "--min-statements" when the gate names the flag that failed. Holding
-// them together keeps the four spellings of one metric in one place.
+// the success line, "Statements" in a markdown table, "statements" as
+// a JSON key, and "--min-statements" when the gate names the flag that
+// failed. Holding them together keeps the five spellings of one metric
+// in one place.
 type metric struct {
 	noun  string // "statement", for the failure line
 	short string // "stmts", for the success line
 	title string // "Statements", for the markdown table
+	key   string // "statements", for the JSON object key
 	flag  string // "--min-statements"
 	got   float64
 	want  float64
@@ -135,13 +138,27 @@ func plural(n int, one, many string) string {
 
 // Output formats plumb check writes. A caller pipes formatMarkdown
 // into a pull request comment; formatText is what a human reads in a
-// build log.
+// build log; formatJSON is what a workflow reads with jq.
 const (
 	formatText     = "text"
 	formatMarkdown = "markdown"
+	formatJSON     = "json"
 )
+
+// formatNames lists every format, in the order the error message and
+// the flag help offer them.
+var formatNames = []string{formatText, formatMarkdown, formatJSON}
 
 // validFormat reports whether v names an output format check knows.
 func validFormat(v string) bool {
-	return v == formatText || v == formatMarkdown
+	return slices.Contains(formatNames, v)
 }
+
+// JSON object keys for the three metrics. They are a promised
+// interface: a workflow reads them with jq, so a rename breaks that
+// workflow silently.
+const (
+	keyStatements = "statements"
+	keyFunctions  = "functions"
+	keyDiff       = "diff"
+)

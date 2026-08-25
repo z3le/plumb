@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
 )
@@ -33,6 +34,7 @@ Examples:
   plumb check coverage.out --min-statements 80 --min-functions 70
   plumb check --min-statements 80     # reads .plumb/coverage.out
   plumb check --min-diff 90 --format=markdown | gh pr comment -F -
+  plumb check --min-diff 90 --format=json | jq .diff.coverage
 `)
 	}
 
@@ -53,11 +55,13 @@ Examples:
 	// measurement runs: a caller who cannot read the answer gains
 	// nothing from plumb computing it.
 	if !validFormat(*cf.format) {
-		fmt.Fprintf(stderr, "plumb: --format value %q is not known, want %s or %s\n", *cf.format, formatText, formatMarkdown)
+		fmt.Fprintf(stderr, "plumb: --format value %q is not known, want one of: %s\n", *cf.format, strings.Join(formatNames, ", "))
 		fs.Usage()
 		return newExitError(2, "unknown output format")
 	}
-	markdown := *cf.format == formatMarkdown
+	// Both document formats own stdout: the human text lines never
+	// share the stream with a document a machine reads.
+	document := *cf.format != formatText
 
 	// --min-functions and --min-diff both need the module, and a run
 	// that asks for both would otherwise walk the tree for go.mod and
@@ -144,6 +148,7 @@ Examples:
 			noun:  "statement",
 			short: "stmts",
 			title: "Statements",
+			key:   keyStatements,
 			flag:  "--min-statements",
 			got:   truncPct(pct),
 			want:  truncPct(*cf.minStmts),
@@ -171,6 +176,7 @@ Examples:
 			noun:  "function",
 			short: "funcs",
 			title: "Functions",
+			key:   keyFunctions,
 			flag:  "--min-functions",
 			got:   truncPct(pct),
 			want:  truncPct(*cf.minFuncs),
@@ -199,7 +205,7 @@ Examples:
 		// In text mode the reference prints as it is measured. Markdown
 		// mode carries the same fact inside the document instead, so
 		// nothing but the document itself reaches stdout.
-		if !markdown {
+		if !document {
 			fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
 		}
 
@@ -217,6 +223,7 @@ Examples:
 				noun:  "diff",
 				short: "diff",
 				title: "Diff",
+				key:   keyDiff,
 				flag:  "--min-diff",
 				got:   truncPct(pct),
 				want:  truncPct(*cf.minDiff),
@@ -229,11 +236,18 @@ Examples:
 		}
 	}
 
-	// Markdown describes the pass and the fail alike, so it writes the
-	// same document either way and only the exit code differs. Write it
+	// A document describes the pass and the fail alike, so it is written
+	// the same way either way and only the exit code differs. Write it
 	// before the failure branch below returns.
-	if markdown {
+	switch *cf.format {
+	case formatMarkdown:
 		fmt.Fprint(stdout, rep.markdown())
+	case formatJSON:
+		doc, err := rep.jsonDoc()
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(stdout, doc)
 	}
 
 	// Collect failures rather than return on the first one: two
@@ -248,7 +262,7 @@ Examples:
 
 	// Build the success line from the metrics the caller asked for,
 	// and from those only.
-	if !markdown {
+	if !document {
 		fmt.Fprint(stdout, rep.successLine())
 	}
 	return nil
@@ -272,7 +286,7 @@ func addCheckFlags(fs *flag.FlagSet) checkFlags {
 		minFuncs: fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)"),
 		minDiff:  fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)"),
 		diffBase: addDiffBaseFlag(fs),
-		format:   fs.String("format", formatText, "output format: text or markdown"),
+		format:   fs.String("format", formatText, "output format: text, markdown, or json"),
 	}
 }
 

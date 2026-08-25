@@ -17,6 +17,12 @@
 
 ### Fixed
 
+- The test suite failed on Go 1.25.0, the version `go.mod` requires. The module
+  under `cmd/plumb/testdata` asked for Go 1.26, so every nested `go test` a
+  fixture ran tried to switch toolchain in the middle of the test. The fixture
+  now asks for the same Go the project asks for. A new `compat` job runs the
+  suite on the minimum version, because the existing job runs on the newest Go
+  and cannot see this class of failure.
 - `pkg.go.dev` showed a list of file names where the package documentation
   belongs. Every file in a package opened with a `// path/to/file.go` comment
   directly above its `package` clause, so Go read all of them as the package

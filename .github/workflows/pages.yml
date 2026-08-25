@@ -1,0 +1,56 @@
+# Publishes plumb's own coverage report to GitHub Pages. The demo and
+# the coverage report are the same page: plumb measures itself, so the
+# page a visitor opens is real output, not a mock-up.
+#
+# Enable this once, by hand: Settings → Pages → Build and deployment →
+# Source → GitHub Actions. The workflow fails until you do.
+name: pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A queued run replaces an older queued run,
+# but never cancels a deployment already in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The report carries a diff view, and a shallow clone leaves
+          # the default reference with no merge base to resolve against.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -coverprofile=coverage.out ./...
+      - run: go build -o plumb ./cmd/plumb
+      - name: render the report
+        run: |
+          mkdir -p site
+          ./plumb report coverage.out --out site/index.html --title "plumb — its own coverage"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

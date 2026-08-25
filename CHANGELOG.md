@@ -1,3 +1,28 @@
+## Unreleased
+
+### Added
+
+- `plumb check --format=markdown` prints the result as a markdown table for a
+  pull request comment. Pipe it into `gh pr comment -F -`. The exit code still
+  carries the verdict, so a gate never has to parse the table. `--format`
+  changes stdout only: the failure lines and the skipped files stay on stderr,
+  where a build log keeps them. The document opens with a `<!-- plumb-coverage -->`
+  marker, so a sticky-comment action can replace the previous comment instead of
+  adding a second one. An unknown `--format` value exits 2 before any
+  measurement runs.
+- `.github/workflows/pages.yml` publishes plumb's own coverage report to GitHub
+  Pages on every push to master. The live demo and the coverage report are the
+  same page. Enable the source once by hand: Settings → Pages → Build and
+  deployment → Source → GitHub Actions.
+
+### Fixed
+
+- `pkg.go.dev` showed a list of file names where the package documentation
+  belongs. Every file in a package opened with a `// path/to/file.go` comment
+  directly above its `package` clause, so Go read all of them as the package
+  comment and joined them. The command now carries real documentation, and the
+  module root carries a `doc.go`.
+
 ## v0.1.4 (2026-08-24)
 
 ### Added

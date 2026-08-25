@@ -1,4 +1,52 @@
-// cmd/plumb/main.go
+// Plumb measures Go test coverage and fails a build when the coverage
+// of the lines a change touched falls below a threshold.
+//
+// Plumb reads the git history to find the lines a change touched, so
+// it needs no coverage service, no API token, and no stored profile
+// from an earlier build. Every other diff coverage tool for Go
+// compares the current profile against a base profile that a previous
+// build uploaded, which adds a storage backend and an expiry date to
+// the pipeline. Plumb compares against a merge base instead.
+//
+// Usage:
+//
+//	plumb <command> [flags] [args]
+//
+// The commands are:
+//
+//	run      Run tests with coverage and render the report
+//	report   Render a coverage profile as an HTML report
+//	check    Check coverage against a minimum threshold
+//	version  Print the plumb version
+//	help     Show this help text
+//
+// # Gate a build
+//
+// The check command compares a profile against the thresholds the
+// caller sets and exits 3 when one of them fails:
+//
+//	plumb check coverage.out --min-statements 80 --min-diff 90
+//
+// The --min-diff threshold measures only the lines that changed since
+// the merge base. Add --format=markdown to print the result as a
+// markdown table for a pull request comment.
+//
+// # Render a report
+//
+// The run command runs the tests, collects the profile, and writes a
+// self-contained HTML report in one step:
+//
+//	plumb run --open
+//
+// The report needs no external request to display: it carries its own
+// styles, its own source view, and its own syntax highlighting.
+//
+// # Exit codes
+//
+//	0  the command succeeded, or the caller asked for help
+//	1  the command failed
+//	2  the caller called the command wrong
+//	3  coverage fell below a threshold
 package main
 
 import (

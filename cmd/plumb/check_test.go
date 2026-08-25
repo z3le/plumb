@@ -1,4 +1,3 @@
-// cmd/plumb/check_test.go
 package main
 
 import (

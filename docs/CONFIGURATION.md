@@ -77,12 +77,24 @@ build when a threshold is not met.
 | `--min-functions` | float64 | `0` | Minimum function coverage percent. Also reads the source tree, so it must run in the repository the profile came from. |
 | `--min-diff` | float64 | `0` | Minimum diff coverage percent, measured on lines changed since `--diff-base`. |
 | `--diff-base` | string | `""` (empty) | The git reference to diff against. Passing `--diff-base` alone also turns on diff mode for `--min-diff`. |
+| `--format` | string | `text` | The output format on stdout. `text` prints the human line a build log shows. `markdown` prints a table for a pull request comment. |
 
 At least one of `--min-statements`, `--min-functions`, or `--min-diff`
 must be given, or `plumb check` exits with a usage error (exit code
 2). A threshold value outside the range 0 to 100 is also a usage
 error. `plumb check` compares the raw threshold value, not a rounded
 or truncated one, so a value equal to the threshold passes.
+
+A `--format` value other than `text` or `markdown` is a usage error
+(exit code 2). `plumb check` rejects it before it measures anything: a
+caller who cannot read the answer gains nothing from plumb computing
+it.
+
+`--format` changes stdout and nothing else. The failure lines and the
+skipped-file lines stay on stderr in both formats, so a build log names
+a dropped file even when the comment that quotes the number goes
+somewhere else. The exit code is the same in both formats too, which is
+why a gate never has to parse the markdown table.
 
 ### `plumb version` / `-v` / `--version`
 

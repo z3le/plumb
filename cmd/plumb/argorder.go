@@ -1,4 +1,3 @@
-// cmd/plumb/argorder.go
 package main
 
 import (

@@ -1,4 +1,3 @@
-// cmd/plumb/exitcode.go
 package main
 
 // exitError carries a process exit code. A command that returns an

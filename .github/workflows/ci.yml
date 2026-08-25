@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: read
+  # The coverage comment step below posts to the pull request thread.
+  pull-requests: write
 
 jobs:
   test:
@@ -26,6 +28,18 @@ jobs:
       - run: go test -race -coverprofile=coverage.out ./...
       - run: go build -o plumb ./cmd/plumb
       - run: ./plumb report coverage.out --out coverage.html
+      # Comment before the gates below: a failed gate stops the job, and
+      # the comment is most useful on exactly the run that failed. A
+      # comment from a fork has no write token, so a failure here never
+      # fails the build.
+      - name: coverage comment
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./plumb check coverage.out --min-statements 85 --min-diff 80 --format=markdown \
+            | gh pr comment "${{ github.event.pull_request.number }}" -F -
       - name: coverage gate
         id: coverage-gate
         run: ./plumb check coverage.out --min-statements 85

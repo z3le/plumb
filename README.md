@@ -1,12 +1,49 @@
 # plumb
 
-> Better code coverage for Go.
+> Diff coverage for Go. No service, no token, no stored artifacts.
 
-`plumb` renders Go coverage profiles into a modern HTML report — the Istanbul of the Go world.
+[![ci](https://github.com/z3le/plumb/actions/workflows/ci.yml/badge.svg)](https://github.com/z3le/plumb/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/z3le/plumb.svg)](https://pkg.go.dev/github.com/z3le/plumb/cmd/plumb)
+[![Go Report Card](https://goreportcard.com/badge/github.com/z3le/plumb)](https://goreportcard.com/report/github.com/z3le/plumb)
+[![coverage](https://img.shields.io/badge/coverage-report-brightgreen)](https://z3le.github.io/plumb/)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-`go tool cover -html` works but looks like 2013. It has no dark mode, no file filter, no sort, and no function coverage. `plumb` adds them.
+`plumb` measures the coverage of the lines your change touched, fails the build
+when that number is too low, and renders the whole profile as a single HTML file
+you can open.
 
-> ⚠️ **Status: pre-alpha.** APIs and flags will change. If something breaks, please open an issue.
+<!--
+TODO: add docs/images/report-dark.png and uncomment the line below.
+Capture the live report at https://z3le.github.io/plumb/ in dark mode,
+at 1280x800, and crop to the file list plus the source view.
+![The plumb HTML report](docs/images/report-dark.png)
+-->
+
+**[See a live report →](https://z3le.github.io/plumb/)** — that page is plumb's
+own coverage, regenerated on every push.
+
+## Why another coverage tool
+
+Every other diff coverage tool for Go compares your profile against a base
+profile that an earlier build saved somewhere. That means a storage backend, an
+upload step, and an expiry date:
+
+| Tool | Needs |
+| :--- | :--- |
+| Codecov, Coveralls | An account, an API token, and a network call |
+| `go-coverage-report` | A base profile in an artifact, which expires after 90 days |
+| `octocov` | A datastore — S3, GCS, BigQuery, or a report repository |
+
+`plumb` reads your git history instead. It finds the merge base, asks git which
+lines changed since then, and intersects them with the profile you just
+produced. Nothing is uploaded, nothing is stored, and nothing expires.
+
+```sh
+plumb check --min-diff 90
+```
+
+That command needs a git repository and a coverage profile. It needs nothing
+else.
 
 ## Install
 
@@ -16,30 +53,7 @@ go install github.com/z3le/plumb/cmd/plumb@latest
 
 Requires Go 1.25.0 or later.
 
-## Usage
-
-`plumb run` runs your tests, collects coverage, and writes the report in one command.
-
-```sh
-plumb run --open
-```
-
-`plumb run` writes the profile to `.plumb/coverage.out` and the report to `coverage.html`. The `--open` flag opens the report in your browser.
-
-If you already have a coverage profile, pass it to `plumb report` instead.
-
-```sh
-go test -coverprofile=coverage.out ./...
-plumb report coverage.out --open
-```
-
-`plumb run` passes every argument after `--` to `go test` unchanged.
-
-```sh
-plumb run ./internal/... -- -race -count=1
-```
-
-## Fail a build on low coverage
+## Gate a build
 
 `plumb check` fails a build when coverage falls below a number you choose.
 
@@ -57,6 +71,7 @@ plumb: statement coverage 79.9%, need 80.0% (--min-statements)
 `--min-statements` reads the profile and nothing else, so it also works on a
 profile downloaded as a build artifact. `--min-functions` adds a second bar and
 reads your source files, so run it in the repository the profile came from.
+`--min-diff` gates the changed lines.
 
 Paste these steps into a job in your GitHub Actions workflow:
 
@@ -68,14 +83,42 @@ Paste these steps into a job in your GitHub Actions workflow:
       - run: go run github.com/z3le/plumb/cmd/plumb@latest check coverage.out --min-statements 80 --min-diff 90
 ```
 
-`fetch-depth: 0` matters even if you gate on `--min-statements` alone today: `actions/checkout@v4` defaults to a depth of 1, which leaves `refs/remotes/origin/HEAD` unset and the fallback branches absent, so `--min-diff`'s default reference has nothing to resolve against on your very first pull request.
+`fetch-depth: 0` matters even if you gate on `--min-statements` alone today:
+`actions/checkout@v4` defaults to a depth of 1, which leaves
+`refs/remotes/origin/HEAD` unset and the fallback branches absent, so
+`--min-diff`'s default reference has nothing to resolve against on your very
+first pull request.
 
 There is no install step and no version to go stale.
 
-## Diff coverage
+## Comment on a pull request
 
-`plumb` can also gate a build on the coverage of the lines a change actually
-touched, not the whole module.
+`--format=markdown` prints the result as a markdown table. Pipe it into a
+comment:
+
+```sh
+plumb check coverage.out --min-statements 80 --min-diff 90 --format=markdown \
+  | gh pr comment "$PR_NUMBER" -F -
+```
+
+The comment looks like this:
+
+> **Coverage**
+>
+> | Metric | Coverage | Minimum | Status |
+> | :--- | ---: | ---: | :---: |
+> | Statements | 89.5% | 80.0% | ✅ pass |
+> | Diff | 92.3% | 90.0% | ✅ pass |
+>
+> Diff measured against `origin/master`, merge base `25de3cd`.
+
+The exit code still carries the verdict, so a gate never has to parse the table.
+`--format` changes stdout only: the failure lines and the skipped files stay on
+stderr, where a build log keeps them. The document opens with a
+`<!-- plumb-coverage -->` marker, so a sticky-comment action can replace the
+previous comment instead of adding a second one.
+
+## Diff coverage
 
 ```sh
 plumb check --min-diff 90
@@ -108,7 +151,46 @@ A new file must be `git add`-ed before any diff can see it — `git diff` never
 reports an untracked file, so a brand-new file is silently absent from the
 percentage until you stage it.
 
-`plumb --help` lists every command:
+## Render a report
+
+`plumb run` runs your tests, collects coverage, and writes the report in one
+command.
+
+```sh
+plumb run --open
+```
+
+`plumb run` writes the profile to `.plumb/coverage.out` and the report to
+`coverage.html`. The `--open` flag opens the report in your browser.
+
+If you already have a coverage profile, pass it to `plumb report` instead.
+
+```sh
+go test -coverprofile=coverage.out ./...
+plumb report coverage.out --open
+```
+
+`plumb run` passes every argument after `--` to `go test` unchanged.
+
+```sh
+plumb run ./internal/... -- -race -count=1
+```
+
+### What the report shows
+
+`go tool cover -html` works, but it has no dark mode, no file filter, no sort,
+and no function coverage. The plumb report adds them:
+
+- File list sortable by statement %, function %, or name
+- Line-by-line source view with green/red coverage highlighting
+- Syntax highlighting
+- Hit counts per line
+- Per-function call counts with ×N badges
+- Summary bar: Statements % and Functions %
+- Dark mode via `prefers-color-scheme`
+- Single self-contained HTML file — no external requests
+
+## Commands
 
 ```
   run      Run tests with coverage and render the report
@@ -130,7 +212,8 @@ plumb run [flags] [pattern] [-- go test args]
   --diff-base ref  git reference to diff against (default: merge base with the default branch)
 ```
 
-The pattern defaults to `./...`. A failing test run prints the failure, exits non-zero, and writes no report.
+The pattern defaults to `./...`. A failing test run prints the failure, exits
+non-zero, and writes no report.
 
 ```
 plumb report [flags] [profile]
@@ -149,6 +232,7 @@ plumb check [flags] [profile]
   --min-functions n    minimum function coverage percent (reads the source tree)
   --min-diff n         minimum diff coverage percent (lines changed since --diff-base)
   --diff-base ref      git reference to diff against (default: merge base with the default branch)
+  --format str         output format: text or markdown (default: text)
 ```
 
 The profile defaults to `.plumb/coverage.out`. A missed threshold exits 3.
@@ -161,15 +245,16 @@ plumb report --out report.html coverage.out
 plumb report coverage.out --out report.html
 ```
 
-## What the report shows
+## Exit codes
 
-- File list sortable by statement %, function %, or name
-- Line-by-line source view with green/red coverage highlighting
-- Hit counts per line
-- Per-function call counts with ×N badges
-- Summary bar: Statements % and Functions %
-- Dark mode via `prefers-color-scheme`
-- Single self-contained HTML file — no external requests
+| Code | Meaning |
+| :--- | :--- |
+| 0 | The command succeeded, or the caller asked for help |
+| 1 | The command failed |
+| 2 | The caller called the command wrong |
+| 3 | Coverage fell below a threshold |
+
+A pipeline reads 2 as "called wrong" and 3 as "coverage fell".
 
 ## Documentation
 
@@ -180,6 +265,12 @@ plumb report coverage.out --out report.html
 - [Configuration](docs/CONFIGURATION.md) — every flag, its default, and the exit codes
 - [Deployment](docs/DEPLOYMENT.md) — use `plumb` in CI
 - [Contributing](CONTRIBUTING.md) — how to submit a change
+
+## Stability
+
+`plumb` is at 0.x. The commands and the flags above work and are tested, but a
+0.x release can still rename one. The [CHANGELOG](CHANGELOG.md) records every
+change.
 
 ## License
 

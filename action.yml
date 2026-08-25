@@ -1,4 +1,4 @@
-name: plumb
+name: Plumb Diff Coverage
 description: Gate a Go build on diff coverage and comment the result on the pull request. No service, no token, no stored artifacts.
 author: z3le
 

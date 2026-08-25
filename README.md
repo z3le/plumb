@@ -96,7 +96,7 @@ request as well:
         with:
           fetch-depth: 0
       - run: go test -coverprofile=coverage.out ./...
-      - uses: z3le/plumb@v0.1.6
+      - uses: z3le/plumb@v0.1.7
         with:
           profile: coverage.out
           min-statements: 80
@@ -132,7 +132,7 @@ It sets `pass`, `statements`, `functions`, `diff`, and `json` as outputs,
 so a later step can read any number plumb measured:
 
 ```yaml
-      - uses: z3le/plumb@v0.1.6
+      - uses: z3le/plumb@v0.1.7
         id: coverage
         with: { profile: coverage.out, min-diff: 90 }
       - run: echo "diff coverage was ${{ steps.coverage.outputs.diff }}%"

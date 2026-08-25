@@ -1,3 +1,13 @@
+## v0.1.7 (2026-08-25)
+
+### Fixed
+
+- The action is called `Plumb Diff Coverage` in the GitHub Marketplace. The
+  Marketplace requires a name unique across every action, user, and
+  organisation on GitHub, and a user named `plumb` has existed since 2013, so
+  it refused the bare project name. Only the display name changed:
+  `uses: z3le/plumb@v0.1.7` is the repository path and is unaffected.
+
 ## v0.1.6 (2026-08-25)
 
 ### Added
@@ -6,7 +16,7 @@
   gate a build and comment on the pull request:
 
   ```yaml
-        - uses: z3le/plumb@v0.1.6
+        - uses: z3le/plumb@v0.1.7
           with:
             profile: coverage.out
             min-diff: 90

@@ -6,7 +6,7 @@ import (
 	"io"
 	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/z3le/plumb/internal/gitdiff"
@@ -159,20 +159,15 @@ func diffCoverage(profiles []*profile.ParsedProfile, modulePath, moduleRoot, bas
 
 	// A changed .go file the profile never mentions leaves both
 	// counters alone; the caller learns why through Skipped (D-38).
-	var leftover []string
-	for name := range remaining {
-		leftover = append(leftover, name)
-	}
-	sort.Strings(leftover)
-	for _, name := range leftover {
+	for _, name := range slices.Sorted(maps.Keys(remaining)) {
 		result.Skipped = append(result.Skipped, report.SkippedFile{Name: name, Reason: "not in the coverage profile"})
 	}
 
 	// Deterministic stderr output: a file-scope skip (encountered in
 	// profile order above) and a not-in-profile skip (already sorted)
 	// interleave here into one alphabetical list.
-	sort.Slice(result.Skipped, func(i, j int) bool {
-		return result.Skipped[i].Name < result.Skipped[j].Name
+	slices.SortFunc(result.Skipped, func(a, b report.SkippedFile) int {
+		return strings.Compare(a.Name, b.Name)
 	})
 
 	return result, nil

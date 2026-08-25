@@ -86,6 +86,60 @@ first pull request.
 
 There is no install step and no version to go stale.
 
+## Use the action
+
+The action does the same work in three lines, and comments on the pull
+request as well:
+
+```yaml
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: go test -coverprofile=coverage.out ./...
+      - uses: z3le/plumb@v0.1.6
+        with:
+          profile: coverage.out
+          min-statements: 80
+          min-diff: 90
+```
+
+It downloads the released binary for the runner, so a job spends no time
+on a Go toolchain or a compile. It gates the build, and on a pull request
+it posts the coverage table as a comment.
+
+The action tells you when a clone is too shallow to measure a diff,
+rather than let the reference fail to resolve later:
+
+```
+plumb: this is a shallow clone, so a diff has no merge base to measure against
+plumb: add 'fetch-depth: 0' to your actions/checkout step
+```
+
+Every input is optional except a threshold:
+
+| Input | Default | Effect |
+| :--- | :--- | :--- |
+| `version` | `latest` | The plumb release to run. |
+| `profile` | `.plumb/coverage.out` | The coverage profile to read. |
+| `min-statements` | — | Minimum statement coverage percent. |
+| `min-functions` | — | Minimum function coverage percent. |
+| `min-diff` | — | Minimum coverage on the lines this change touched. |
+| `diff-base` | — | The git reference to diff against. |
+| `comment` | `true` | Post the result on the pull request. |
+| `github-token` | `github.token` | The token the comment uses. |
+
+It sets `pass`, `statements`, `functions`, `diff`, and `json` as outputs,
+so a later step can read any number plumb measured:
+
+```yaml
+      - uses: z3le/plumb@v0.1.6
+        id: coverage
+        with: { profile: coverage.out, min-diff: 90 }
+      - run: echo "diff coverage was ${{ steps.coverage.outputs.diff }}%"
+```
+
+The comment step needs `pull-requests: write` permission.
+
 ## Comment on a pull request
 
 `--format=markdown` prints the result as a markdown table. Pipe it into a

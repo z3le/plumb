@@ -7,7 +7,9 @@ import (
 	"golang.org/x/tools/cover"
 )
 
-func TestStmtPct(t *testing.T) {
+// TestStmtPercent proves the NumStmt weighting that go tool cover -func
+// applies, read through the pair that replaced the StmtPct wrapper.
+func TestStmtPercent(t *testing.T) {
 	tests := []struct {
 		name    string
 		profile *cover.Profile
@@ -67,7 +69,7 @@ func TestStmtPct(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := StmtPct(tc.profile)
+			got := Percent(StmtTotals(tc.profile))
 			require.Equal(t, tc.want, got)
 		})
 	}

@@ -119,16 +119,16 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
     {{ if .Diff }}
     <div class="stat">
       <span class="stat-label">Diff</span>
-      <span class="stat-value {{ if .DiffMeasured }}{{ pctClass .DiffPct }}{{ end }}">{{ if .DiffMeasured }}{{ printf "%.1f" .DiffPct }}%{{ else }}{{ noCoverableLines }}{{ end }}</span>
+      <span class="stat-value {{ if .DiffMeasured }}{{ pctClass .DiffPct }}{{ end }}">{{ if .DiffMeasured }}{{ pct .DiffPct }}%{{ else }}{{ noCoverableLines }}{{ end }}</span>
     </div>
     {{ end }}
     <div class="stat">
       <span class="stat-label">Statements</span>
-      <span class="stat-value {{ pctClass .StmtPct }}">{{ printf "%.1f" .StmtPct }}%</span>
+      <span class="stat-value {{ pctClass .StmtPct }}">{{ pct .StmtPct }}%</span>
     </div>
     <div class="stat">
       <span class="stat-label">Functions</span>
-      <span class="stat-value {{ pctClass .FuncPct }}">{{ printf "%.1f" .FuncPct }}%</span>
+      <span class="stat-value {{ pctClass .FuncPct }}">{{ pct .FuncPct }}%</span>
     </div>
   </div>
 </header>
@@ -165,8 +165,8 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
           <span class="file-pkg">{{ .Pkg }}</span>
           {{ .ShortName }}
         </div>
-        {{ if $.Diff }}<span class="pct-pill {{ pctClass .DiffPct }}">{{ printf "%.1f" .DiffPct }}% diff</span>{{ end }}
-        <span class="pct-pill {{ pctClass .StmtPct }}">{{ printf "%.1f" .StmtPct }}%</span>
+        {{ if $.Diff }}<span class="pct-pill {{ pctClass .DiffPct }}">{{ pct .DiffPct }}% diff</span>{{ end }}
+        <span class="pct-pill {{ pctClass .StmtPct }}">{{ pct .StmtPct }}%</span>
       </div>
       {{ end }}
     </div>
@@ -182,8 +182,8 @@ header h1 .logo { color:var(--green-text); font-family:var(--font-mono); }
       <div class="source-header">
         <span class="source-title">{{ .Pkg }}/{{ .ShortName }}</span>
         <div class="source-stats">
-          <span>stmts <span class="hi">{{ printf "%.1f" .StmtPct }}%</span></span>
-          <span>funcs <span class="hi">{{ printf "%.1f" .FuncPct }}%</span></span>
+          <span>stmts <span class="hi">{{ pct .StmtPct }}%</span></span>
+          <span>funcs <span class="hi">{{ pct .FuncPct }}%</span></span>
         </div>
       </div>
 

@@ -77,7 +77,7 @@ build when a threshold is not met.
 | `--min-functions` | float64 | `0` | Minimum function coverage percent. Also reads the source tree, so it must run in the repository the profile came from. |
 | `--min-diff` | float64 | `0` | Minimum diff coverage percent, measured on lines changed since `--diff-base`. |
 | `--diff-base` | string | `""` (empty) | The git reference to diff against. Passing `--diff-base` alone also turns on diff mode for `--min-diff`. |
-| `--format` | string | `text` | The output format on stdout. `text` prints the human line a build log shows. `markdown` prints a table for a pull request comment. |
+| `--format` | string | `text` | The output format on stdout. `text` prints the human line a build log shows. `markdown` prints a table for a pull request comment. `json` prints a document a workflow reads with jq. |
 
 At least one of `--min-statements`, `--min-functions`, or `--min-diff`
 must be given, or `plumb check` exits with a usage error (exit code
@@ -85,8 +85,8 @@ must be given, or `plumb check` exits with a usage error (exit code
 error. `plumb check` compares the raw threshold value, not a rounded
 or truncated one, so a value equal to the threshold passes.
 
-A `--format` value other than `text` or `markdown` is a usage error
-(exit code 2). `plumb check` rejects it before it measures anything: a
+A `--format` value other than `text`, `markdown`, or `json` is a usage
+error (exit code 2). `plumb check` rejects it before it measures anything: a
 caller who cannot read the answer gains nothing from plumb computing
 it.
 
@@ -95,6 +95,38 @@ skipped-file lines stay on stderr in both formats, so a build log names
 a dropped file even when the comment that quotes the number goes
 somewhere else. The exit code is the same in both formats too, which is
 why a gate never has to parse the markdown table.
+
+#### The JSON document
+
+`--format=json` writes one object. A metric the run did not gate on is
+absent rather than zero, so a reader can tell "the job did not measure
+this" from "the value is 0":
+
+```json
+{
+  "plumb": "v0.1.6",
+  "pass": true,
+  "statements": { "coverage": 89.5, "minimum": 80, "pass": true },
+  "diff": {
+    "coverage": 92.3,
+    "minimum": 90,
+    "pass": true,
+    "base": "origin/master",
+    "mergeBase": "88500d66fea65c276f97b215b71d13a5e01c115d"
+  }
+}
+```
+
+`diff.coverage` is `null`, not `0`, when the diff touched no coverable
+line (D-37). A `0` there would report a coverage drop that never
+happened.
+
+`diff.mergeBase` holds the whole commit SHA. Only the markdown format
+shortens it, because only a human reads that one.
+
+The field names are a promised interface. A workflow reads them with
+jq, so a rename breaks that workflow with no error. Fields may be
+added; none change.
 
 ### `plumb version` / `-v` / `--version`
 

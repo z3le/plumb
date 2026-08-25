@@ -1,0 +1,188 @@
+name: plumb
+description: Gate a Go build on diff coverage and comment the result on the pull request. No service, no token, no stored artifacts.
+author: z3le
+
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  version:
+    description: 'The plumb release to run, such as v0.1.6. The default takes the newest release.'
+    required: false
+    default: latest
+  profile:
+    description: 'The coverage profile to read.'
+    required: false
+    default: .plumb/coverage.out
+  min-statements:
+    description: 'Minimum statement coverage percent. Leave empty to skip this gate.'
+    required: false
+    default: ''
+  min-functions:
+    description: 'Minimum function coverage percent. Reads the source tree. Leave empty to skip this gate.'
+    required: false
+    default: ''
+  min-diff:
+    description: 'Minimum coverage percent on the lines this change touched. Leave empty to skip this gate.'
+    required: false
+    default: ''
+  diff-base:
+    description: 'The git reference to diff against. The default resolves the merge base with the default branch.'
+    required: false
+    default: ''
+  comment:
+    description: 'Post the result as a pull request comment. Ignored outside a pull request.'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'The token the comment step uses. Needs pull-requests: write.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  pass:
+    description: 'true when every threshold was met.'
+    value: ${{ steps.check.outputs.pass }}
+  statements:
+    description: 'Statement coverage percent, empty when the run did not gate on it.'
+    value: ${{ steps.check.outputs.statements }}
+  functions:
+    description: 'Function coverage percent, empty when the run did not gate on it.'
+    value: ${{ steps.check.outputs.functions }}
+  diff:
+    description: 'Diff coverage percent, empty when the run did not gate on it or no coverable line changed.'
+    value: ${{ steps.check.outputs.diff }}
+  json:
+    description: 'The whole result as a JSON document.'
+    value: ${{ steps.check.outputs.json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install plumb
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-X64)    asset=plumb-linux-amd64 ;;
+          Linux-ARM64)  asset=plumb-linux-arm64 ;;
+          macOS-X64)    asset=plumb-darwin-amd64 ;;
+          macOS-ARM64)  asset=plumb-darwin-arm64 ;;
+          Windows-X64)  asset=plumb-windows-amd64.exe ;;
+          *)
+            echo "plumb: no released binary for ${RUNNER_OS}-${RUNNER_ARCH}" >&2
+            exit 1 ;;
+        esac
+
+        if [ "${VERSION}" = "latest" ]; then
+          url="https://github.com/z3le/plumb/releases/latest/download/${asset}"
+        else
+          url="https://github.com/z3le/plumb/releases/download/${VERSION}/${asset}"
+        fi
+
+        dir="${RUNNER_TEMP}/plumb"
+        mkdir -p "${dir}"
+        # --fail turns an HTTP 404 into a non-zero exit. Without it curl
+        # writes the error page to the file and the next step reports a
+        # corrupt binary instead of a version that does not exist.
+        if ! curl -fsSL "${url}" -o "${dir}/plumb"; then
+          echo "plumb: could not download ${url}" >&2
+          echo "plumb: check that the version input names a released tag" >&2
+          exit 1
+        fi
+        chmod +x "${dir}/plumb"
+        echo "${dir}" >> "${GITHUB_PATH}"
+      env:
+        VERSION: ${{ inputs.version }}
+
+    - name: Check coverage
+      id: check
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # A shallow clone leaves refs/remotes/origin/HEAD unset and the
+        # fallback branches absent, so the default reference has nothing
+        # to resolve against. Say so here rather than let plumb fail with
+        # a message about a reference the caller never typed.
+        if [ -n "${MIN_DIFF}" ] || [ -n "${DIFF_BASE}" ]; then
+          if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)" = "true" ]; then
+            echo "plumb: this is a shallow clone, so a diff has no merge base to measure against" >&2
+            echo "plumb: add 'fetch-depth: 0' to your actions/checkout step" >&2
+            exit 1
+          fi
+        fi
+
+        # Written as if blocks, not as "test && args+=(...)". GitHub runs
+        # a composite bash step with -e already set, and an AND list whose
+        # left side is false returns 1, which would end the step the first
+        # time a caller left a threshold empty.
+        args=("${PROFILE}")
+        if [ -n "${MIN_STATEMENTS}" ]; then args+=(--min-statements "${MIN_STATEMENTS}"); fi
+        if [ -n "${MIN_FUNCTIONS}" ];  then args+=(--min-functions "${MIN_FUNCTIONS}"); fi
+        if [ -n "${MIN_DIFF}" ];       then args+=(--min-diff "${MIN_DIFF}"); fi
+        if [ -n "${DIFF_BASE}" ];      then args+=(--diff-base "${DIFF_BASE}"); fi
+
+        if [ ${#args[@]} -eq 1 ]; then
+          echo "plumb: no threshold given, set min-statements, min-functions, or min-diff" >&2
+          exit 1
+        fi
+
+        # The comment runs first so a failed gate still comments. Both
+        # runs read the same profile and the same git state, so the two
+        # documents cannot disagree.
+        if [ "${COMMENT}" = "true" ] && [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+          plumb check "${args[@]}" --format=markdown > "${RUNNER_TEMP}/plumb-comment.md" || true
+          echo "comment-file=${RUNNER_TEMP}/plumb-comment.md" >> "${GITHUB_OUTPUT}"
+        fi
+
+        # A failed gate exits 3, and that is the answer, not a crash. Turn
+        # -e off across the run so the code reaches the last step below.
+        set +e
+        plumb check "${args[@]}" --format=json > "${RUNNER_TEMP}/plumb.json"
+        code=$?
+        set -e
+        cat "${RUNNER_TEMP}/plumb.json"
+
+        # Exit code 2 means the caller called plumb wrong, and the JSON
+        # document was never written. Fail before jq reads an empty file.
+        if [ ! -s "${RUNNER_TEMP}/plumb.json" ]; then
+          echo "plumb: no result to report" >&2
+          exit "${code}"
+        fi
+
+        {
+          echo "pass=$(jq -r '.pass' "${RUNNER_TEMP}/plumb.json")"
+          echo "statements=$(jq -r '.statements.coverage // ""' "${RUNNER_TEMP}/plumb.json")"
+          echo "functions=$(jq -r '.functions.coverage // ""' "${RUNNER_TEMP}/plumb.json")"
+          echo "diff=$(jq -r '.diff.coverage // ""' "${RUNNER_TEMP}/plumb.json")"
+          echo "json<<PLUMB_JSON_EOF"
+          cat "${RUNNER_TEMP}/plumb.json"
+          echo "PLUMB_JSON_EOF"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "exit-code=${code}" >> "${GITHUB_OUTPUT}"
+      env:
+        PROFILE: ${{ inputs.profile }}
+        MIN_STATEMENTS: ${{ inputs.min-statements }}
+        MIN_FUNCTIONS: ${{ inputs.min-functions }}
+        MIN_DIFF: ${{ inputs.min-diff }}
+        DIFF_BASE: ${{ inputs.diff-base }}
+        COMMENT: ${{ inputs.comment }}
+
+    - name: Comment on the pull request
+      if: steps.check.outputs.comment-file != ''
+      shell: bash
+      # A pull request from a fork carries a read-only token, so the
+      # comment cannot post. That is not a reason to fail the build: the
+      # gate below still reports the verdict.
+      continue-on-error: true
+      run: gh pr comment "${PR}" -F "${{ steps.check.outputs.comment-file }}"
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+
+    - name: Report the verdict
+      shell: bash
+      run: exit ${{ steps.check.outputs.exit-code }}

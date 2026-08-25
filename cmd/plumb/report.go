@@ -31,21 +31,15 @@ Examples:
 	}
 
 	open, out, title := addReportFlags(fs)
-	_, diffBase := addReportDiffFlags(fs)
+	diffBase := addReportDiffFlags(fs)
 
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
-	profilePath := ".plumb/coverage.out"
-	if fs.NArg() > 0 {
-		profilePath = fs.Arg(0)
-	}
-	// A second positional argument is a mistyped invocation (WR-01).
-	if fs.NArg() > 1 {
-		fmt.Fprintf(stderr, "plumb: unexpected argument %q, want one profile\n", fs.Arg(1))
-		fs.Usage()
-		return newExitError(2, "unexpected argument")
+	profilePath, err := profileArg(fs, stderr)
+	if err != nil {
+		return err
 	}
 
 	// A caller who types only --diff-base means diff mode (D-40), so
@@ -94,10 +88,13 @@ func addDiffBaseFlag(fs *flag.FlagSet) *string {
 // in the diff — git diff never sees an untracked file, and D-41 sells
 // plumb run --diff as the whole local loop, so the help text says so
 // (RESEARCH.md Pitfall 1).
-func addReportDiffFlags(fs *flag.FlagSet) (diff *bool, diffBase *string) {
-	diff = fs.Bool(diffFlagName, false, "report coverage on lines changed since --diff-base (new files must be git add-ed to be included)")
-	diffBase = addDiffBaseFlag(fs)
-	return diff, diffBase
+// The --diff bool is registered but not returned: every caller reads it
+// through flagsGiven, because D-40 makes --diff-base alone mean diff
+// mode too, and a bare bool cannot carry that. Returning a pointer no
+// caller may trust invited one to trust it.
+func addReportDiffFlags(fs *flag.FlagSet) (diffBase *string) {
+	fs.Bool(diffFlagName, false, "report coverage on lines changed since --diff-base (new files must be git add-ed to be included)")
+	return addDiffBaseFlag(fs)
 }
 
 // reportOptions carries every option renderReport needs. It replaces
@@ -190,7 +187,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	var diffPart string
 	if opts.Diff {
 		if r.DiffMeasured {
-			diffPart = fmt.Sprintf("%.1f%% diff, ", r.DiffPct)
+			diffPart = fmt.Sprintf("%.1f%% diff, ", report.TruncPct(r.DiffPct))
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so the phrase replaces the number.
@@ -201,9 +198,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	// A file the run could not read, or that the diff left out, is
 	// named here. A percentage from fewer files than the profile
 	// measured must never look like a complete result.
-	for _, s := range r.Skipped {
-		fmt.Fprintf(stderr, "plumb: skipped %s: %s\n", s.Name, s.Reason)
-	}
+	printSkipped(stderr, r.Skipped)
 	// In diff mode an empty file list is the normal outcome of a
 	// commit that touched no Go code, so this guard applies only when
 	// diff mode is off.
@@ -215,7 +210,7 @@ func renderReport(opts reportOptions, stdout, stderr io.Writer) error {
 	if err := report.RenderToFile(opts.Out, r); err != nil {
 		return fmt.Errorf("writing report: %w", err)
 	}
-	fmt.Fprintf(stdout, "plumb: wrote %s (%s%.1f%% stmts, %.1f%% funcs)\n", opts.Out, diffPart, r.StmtPct, r.FuncPct)
+	fmt.Fprintf(stdout, "plumb: wrote %s (%s%.1f%% stmts, %.1f%% funcs)\n", opts.Out, diffPart, report.TruncPct(r.StmtPct), report.TruncPct(r.FuncPct))
 
 	if opts.Open {
 		if err := openBrowser(opts.Out); err != nil {

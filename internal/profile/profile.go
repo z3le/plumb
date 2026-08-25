@@ -27,10 +27,9 @@ func Parse(path string) ([]*ParsedProfile, error) {
 		if strings.HasSuffix(p.FileName, "_test.go") {
 			continue
 		}
-		cp := p // avoid loop variable capture
 		out = append(out, &ParsedProfile{
 			FileName:     p.FileName,
-			CoverProfile: cp,
+			CoverProfile: p,
 		})
 	}
 	return out, nil

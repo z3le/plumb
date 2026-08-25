@@ -25,8 +25,7 @@ import (
 // test when git exits non-zero, reporting git's combined output.
 func Run(t *testing.T, args ...string) {
 	t.Helper()
-	out, err := exec.Command("git", args...).CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
+	RunIn(t, ".", args...)
 }
 
 // RunIn runs git inside dir, so a test can build more than one
@@ -42,9 +41,7 @@ func RunIn(t *testing.T, dir string, args ...string) {
 // stdout with the trailing newline removed.
 func Output(t *testing.T, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", args...).Output()
-	require.NoError(t, err, "git %v", args)
-	return strings.TrimSpace(string(out))
+	return OutputIn(t, ".", args...)
 }
 
 // OutputIn runs git inside dir and returns its stdout with the

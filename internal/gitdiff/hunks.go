@@ -68,7 +68,7 @@ func ParseHunks(diff string) (map[string][]int, error) {
 			// A new-side count of 0 is a pure deletion: it names no
 			// line on the new side, so it contributes nothing
 			// (DIFF-03).
-			for i := 0; i < count; i++ {
+			for i := range count {
 				changed[current] = append(changed[current], start+i)
 			}
 		}

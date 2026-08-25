@@ -10,7 +10,9 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
+	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
@@ -29,6 +31,7 @@ var tmpl = template.Must(
 		// code prints, so the phrase has one definition and the HTML
 		// cannot drift from the terminal output (D-37, D-51).
 		"noCoverableLines": func() string { return NoCoverableLinesChanged },
+		"pct":              func(v float64) string { return fmt.Sprintf("%.1f", TruncPct(v)) },
 	}).ParseFS(templateFS, "templates/report.html.tmpl"),
 )
 
@@ -96,32 +99,17 @@ func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error
 		// mode is off" (D-46).
 		changedLines, named := opts.Changed[pp.FileName]
 
-		rendered, err := renderLines(lines, diskPath, changedLines)
-		if err != nil {
-			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
-			continue
-		}
-
-		// Take the totals once and divide here: StmtPct walks the same
-		// blocks to return the same ratio, so a second call would walk
-		// every block twice for one file.
 		stmtCovered, stmtTotal := profile.StmtTotals(pp.CoverProfile)
-		var stmtPct float64
-		if stmtTotal > 0 {
-			stmtPct = float64(stmtCovered) / float64(stmtTotal) * 100
-		}
+		stmtPct := profile.Percent(stmtCovered, stmtTotal)
 		funcPct := profile.FuncPct(funcs)
 
 		// accumulate totals — unconditional, so filtering the file list
 		// below can never change a module-wide number (D-47).
 		totalStmtCovered += stmtCovered
 		totalStmtTotal += stmtTotal
-		for _, f := range funcs {
-			totalFuncsTotal++
-			if f.Count > 0 {
-				totalFuncsCovered++
-			}
-		}
+		funcCovered, funcTotal := profile.FuncTotals(funcs)
+		totalFuncsCovered += funcCovered
+		totalFuncsTotal += funcTotal
 
 		// The diff accumulator stays unconditional too: a file the
 		// changed map does not name contributes zero to both counters
@@ -131,12 +119,45 @@ func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error
 		totalDiffCovered += diffCovered
 		totalDiffTotal += diffTotal
 
-		var diffPct float64
-		if diffTotal > 0 {
-			diffPct = float64(diffCovered) / float64(diffTotal) * 100
+		diffPct := profile.Percent(diffCovered, diffTotal)
+
+		// Decide whether the file reaches the file list before any of
+		// its source is rendered. Highlighting is the most expensive
+		// work in the report, and in diff mode most files leave through
+		// one of the two branches below — rendering them first spent
+		// milliseconds each to produce HTML nothing ever reads. Every
+		// total above is already accumulated, so leaving the iteration
+		// here cannot change a module-wide number (D-47).
+		switch {
+		case !opts.Diff:
+			// Diff mode is off: every file the profile mentions renders,
+			// exactly as it did before this plan.
+		case !named:
+			// Case 1: the diff did not touch this file. Drop it from
+			// Files and add no skip entry — a file the diff did not
+			// touch is out of scope, not an omission, and a skip line
+			// for every untouched file would bury the real ones (D-46).
+			continue
+		case diffTotal > 0:
+			// Case 2: the diff named the file and it carries at least
+			// one coverable changed line.
+		default:
+			// Case 3: the diff named the file, but every line it
+			// touched there is Uncoverable. Leave it out of Files and
+			// name it in Skipped with the same phrase D-37 prints at
+			// whole-diff scope — one rule, read the same at both
+			// scopes (D-51).
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: NoCoverableLinesChanged})
+			continue
 		}
 
-		fr := FileReport{
+		rendered, err := renderLines(lines, diskPath, changedLines)
+		if err != nil {
+			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: err.Error()})
+			continue
+		}
+
+		r.Files = append(r.Files, FileReport{
 			Name:      pp.FileName,
 			ShortName: path.Base(pp.FileName),
 			Pkg:       shortPkg(pp.FileName, opts.ModulePath),
@@ -145,45 +166,16 @@ func Build(profiles []*profile.ParsedProfile, opts BuildOptions) (*Report, error
 			DiffPct:   diffPct,
 			Lines:     rendered,
 			Funcs:     funcs,
-		}
-
-		switch {
-		case !opts.Diff:
-			// Diff mode is off: every file the profile mentions renders,
-			// exactly as it did before this plan.
-			r.Files = append(r.Files, fr)
-		case !named:
-			// Case 1: the diff did not touch this file. Drop it from
-			// Files and add no skip entry — a file the diff did not
-			// touch is out of scope, not an omission, and a skip line
-			// for every untouched file would bury the real ones (D-46).
-		case diffTotal > 0:
-			// Case 2: the diff named the file and it carries at least
-			// one coverable changed line.
-			r.Files = append(r.Files, fr)
-		default:
-			// Case 3: the diff named the file, but every line it
-			// touched there is Uncoverable. Leave it out of Files and
-			// name it in Skipped with the same phrase D-37 prints at
-			// whole-diff scope — one rule, read the same at both
-			// scopes (D-51).
-			r.Skipped = append(r.Skipped, SkippedFile{Name: pp.FileName, Reason: NoCoverableLinesChanged})
-		}
+		})
 	}
 
-	if totalStmtTotal > 0 {
-		r.StmtPct = float64(totalStmtCovered) / float64(totalStmtTotal) * 100
-	}
-	if totalFuncsTotal > 0 {
-		r.FuncPct = float64(totalFuncsCovered) / float64(totalFuncsTotal) * 100
-	}
+	r.StmtPct = profile.Percent(totalStmtCovered, totalStmtTotal)
+	r.FuncPct = profile.Percent(totalFuncsCovered, totalFuncsTotal)
 	// DiffMeasured is D-37's signal: a diff with no coverable changed
 	// line anywhere is not a 0% diff, it is no diff at all, so DiffPct
 	// must not be rendered unless this is true.
 	r.DiffMeasured = totalDiffTotal > 0
-	if r.DiffMeasured {
-		r.DiffPct = float64(totalDiffCovered) / float64(totalDiffTotal) * 100
-	}
+	r.DiffPct = profile.Percent(totalDiffCovered, totalDiffTotal)
 
 	return r, nil
 }
@@ -244,23 +236,60 @@ func renderLines(lines []profile.AnnotatedLine, diskPath string, changed []int) 
 	return out, nil
 }
 
+// lexerFor returns the chroma lexer for a file name, and caches the
+// answer by file extension.
+//
+// lexers.Match scans every filename glob of all 275 registered lexers,
+// and retries each miss against a list of ignored suffixes. Chroma's
+// own documentation calls it "not particularly efficient"; it measures
+// near 4ms. Build calls it once per file, and every call in a Go
+// coverage report returns the same Go lexer, so a module with 500
+// files spent about two seconds matching globs it had already matched.
+// The extension is what Match keys on in practice, so caching by
+// extension returns the same lexer Match would.
+var lexerFor = func() func(string) chroma.Lexer {
+	var mu sync.Mutex
+	cache := map[string]chroma.Lexer{}
+
+	return func(filename string) chroma.Lexer {
+		ext := path.Ext(filename)
+		mu.Lock()
+		defer mu.Unlock()
+		if l, ok := cache[ext]; ok {
+			return l
+		}
+		l := lexers.Match(filename)
+		if l == nil {
+			l = lexers.Fallback
+		}
+		cache[ext] = l
+		return l
+	}
+}()
+
+// chromaStyle and chromaFormatter are resolved once. Both are read-only
+// after construction, and Build rebuilt them once per file before.
+var (
+	chromaStyle = sync.OnceValue(func() *chroma.Style {
+		if s := styles.Get("github-dark"); s != nil {
+			return s
+		}
+		return styles.Fallback
+	})
+	chromaFormatter = sync.OnceValue(func() *chromahtml.Formatter {
+		return chromahtml.New(
+			chromahtml.WithClasses(false),
+			chromahtml.WithLineNumbers(false),
+			chromahtml.PreventSurroundingPre(true),
+		)
+	})
+)
+
 // highlightLines runs chroma on source and returns per-line HTML fragments.
 func highlightLines(source, filename string) ([]template.HTML, error) {
-	lexer := lexers.Match(filename)
-	if lexer == nil {
-		lexer = lexers.Fallback
-	}
-
-	style := styles.Get("github-dark")
-	if style == nil {
-		style = styles.Fallback
-	}
-
-	formatter := chromahtml.New(
-		chromahtml.WithClasses(false),
-		chromahtml.WithLineNumbers(false),
-		chromahtml.PreventSurroundingPre(true),
-	)
+	lexer := lexerFor(filename)
+	style := chromaStyle()
+	formatter := chromaFormatter()
 
 	iterator, err := lexer.Tokenise(nil, source)
 	if err != nil {

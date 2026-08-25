@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 )
 
 // runCmd runs go test with coverage over the given package pattern,
@@ -41,7 +42,7 @@ Examples:
 	}
 
 	open, out, title := addReportFlags(fs)
-	_, diffBase := addReportDiffFlags(fs)
+	diffBase := addReportDiffFlags(fs)
 
 	if err := parseFlags(fs, before); err != nil {
 		return err
@@ -54,8 +55,14 @@ Examples:
 	if fs.NArg() > 0 {
 		pattern = fs.Arg(0)
 	}
+	// Exit 2, the same code report and check give a second positional
+	// argument. The exit-code contract in main.go puts every wrong call
+	// in that class, and a pipeline that branches on 2 against 1 must
+	// not read the same mistake two ways depending on the subcommand.
 	if fs.NArg() > 1 {
-		return fmt.Errorf("unexpected argument %q — place go test arguments after --", fs.Arg(1))
+		fmt.Fprintf(stderr, "plumb: unexpected argument %q, place go test arguments after --\n", fs.Arg(1))
+		fs.Usage()
+		return newExitError(2, "unexpected argument")
 	}
 
 	goBin, err := exec.LookPath("go")
@@ -63,10 +70,10 @@ Examples:
 		return fmt.Errorf("finding go toolchain (install it from https://go.dev/dl/): %w", err)
 	}
 
-	if err := ensureProfileDir(".plumb"); err != nil {
-		return fmt.Errorf("preparing .plumb directory: %w", err)
+	if err := ensureProfileDir(defaultProfileDir); err != nil {
+		return fmt.Errorf("preparing %s directory: %w", defaultProfileDir, err)
 	}
-	profilePath := filepath.Join(".plumb", "coverage.out")
+	profilePath := defaultProfilePath()
 
 	// The same pattern drives both -coverpkg and the trailing package
 	// argument, so a test in one package always credits the package it
@@ -127,10 +134,8 @@ func goTestArgs(pattern, profilePath string, extra []string) []string {
 // "--". Elements before it are plumb's own args; elements after it are
 // passed to go test verbatim.
 func splitPassthrough(args []string) (before, after []string) {
-	for i, a := range args {
-		if a == "--" {
-			return args[:i], args[i+1:]
-		}
+	if i := slices.Index(args, "--"); i >= 0 {
+		return args[:i], args[i+1:]
 	}
 	return args, nil
 }

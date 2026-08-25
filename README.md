@@ -12,15 +12,10 @@
 when that number is too low, and renders the whole profile as a single HTML file
 you can open.
 
-<!--
-TODO: add docs/images/report-dark.png and uncomment the line below.
-Capture the live report at https://z3le.github.io/plumb/ in dark mode,
-at 1280x800, and crop to the file list plus the source view.
-![The plumb HTML report](docs/images/report-dark.png)
--->
+[![The plumb HTML report: a sortable file list beside a line-by-line source view, with covered lines in green and uncovered lines in red](docs/images/report-dark.png)](https://z3le.github.io/plumb/)
 
-**[See a live report →](https://z3le.github.io/plumb/)** — that page is plumb's
-own coverage, regenerated on every push.
+**[Open the live report →](https://z3le.github.io/plumb/)** — that page is
+plumb's own coverage, regenerated on every push.
 
 ## Why another coverage tool
 

@@ -40,7 +40,7 @@ jobs:
       - name: render the report
         run: |
           mkdir -p site
-          ./plumb report coverage.out --out site/index.html --title "plumb — its own coverage"
+          ./plumb report coverage.out --out site/index.html --title "its own coverage"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

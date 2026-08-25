@@ -1,4 +1,3 @@
-// internal/profile/staleness_test.go
 package profile
 
 import (

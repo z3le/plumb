@@ -1,4 +1,3 @@
-// internal/profile/staleness.go
 package profile
 
 import (

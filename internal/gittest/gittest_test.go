@@ -1,4 +1,3 @@
-// internal/gittest/gittest_test.go
 package gittest
 
 import (

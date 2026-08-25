@@ -1,4 +1,3 @@
-// cmd/plumb/check.go
 package main
 
 import (

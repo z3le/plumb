@@ -1,4 +1,3 @@
-// cmd/plumb/module.go
 package main
 
 import (

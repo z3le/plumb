@@ -1,4 +1,3 @@
-// cmd/plumb/diffcov_test.go
 package main
 
 import (

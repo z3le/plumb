@@ -148,6 +148,36 @@ you want to distinguish "coverage too low" from other failures
 (`plumb check` uses different exit codes for a wrong call — see
 `docs/CONFIGURATION.md`).
 
+### Commenting on the pull request
+
+`--format=markdown` prints the result as a markdown table. Pipe it
+into `gh pr comment`, which the GitHub Actions runner provides:
+
+```yaml
+      - name: coverage comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          go run github.com/z3le/plumb/cmd/plumb@latest check coverage.out \
+            --min-statements 80 --min-diff 90 --format=markdown \
+            | gh pr comment "${{ github.event.pull_request.number }}" -F -
+```
+
+The job needs `pull-requests: write` permission to post the comment.
+
+Put the comment step before the gate step, or give it
+`if: always()`. A failed gate stops the job, and a coverage comment is
+most useful on exactly the run that failed.
+
+The document opens with a `<!-- plumb-coverage -->` marker. A
+sticky-comment action matches that string to replace its previous
+comment, so a long-running pull request collects one comment rather
+than one per push.
+
+`--format` changes stdout only. The failure lines still reach stderr,
+so the build log keeps them even though the table went to the comment.
+
 ### What plumb does not need in your pipeline
 
 - No install step. `go run ...@latest` fetches and builds plumb on

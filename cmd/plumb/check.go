@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strings"
 
 	"github.com/z3le/plumb/internal/profile"
-	"github.com/z3le/plumb/internal/report"
 )
 
 // checkCmd reads a coverage profile and fails the build when
@@ -34,10 +32,11 @@ Examples:
   plumb check coverage.out --min-statements 80
   plumb check coverage.out --min-statements 80 --min-functions 70
   plumb check --min-statements 80     # reads .plumb/coverage.out
+  plumb check --min-diff 90 --format=markdown | gh pr comment -F -
 `)
 	}
 
-	minStmts, minFuncs, minDiff, diffBase := addCheckFlags(fs)
+	cf := addCheckFlags(fs)
 
 	if err := parseFlags(fs, args); err != nil {
 		return err
@@ -48,6 +47,17 @@ Examples:
 	// (D-33). A sentinel default would break the moment a caller typed
 	// the sentinel; Visit does not have that failure mode.
 	given := flagsGiven(fs)
+
+	// An unknown --format value is a mistyped invocation, so it fails
+	// the same way an out-of-range threshold does. Check it before any
+	// measurement runs: a caller who cannot read the answer gains
+	// nothing from plumb computing it.
+	if !validFormat(*cf.format) {
+		fmt.Fprintf(stderr, "plumb: --format value %q is not known, want %s or %s\n", *cf.format, formatText, formatMarkdown)
+		fs.Usage()
+		return newExitError(2, "unknown output format")
+	}
+	markdown := *cf.format == formatMarkdown
 
 	// --min-functions and --min-diff both need the module, and a run
 	// that asks for both would otherwise walk the tree for go.mod and
@@ -77,18 +87,18 @@ Examples:
 
 	// Check min-statements first, then min-functions, then min-diff,
 	// and report the first rejected value only (D-35).
-	if given["min-statements"] && !validThreshold(*minStmts) {
-		fmt.Fprintf(stderr, "plumb: --min-statements value %v is out of range, want 0 to 100\n", *minStmts)
+	if given["min-statements"] && !validThreshold(*cf.minStmts) {
+		fmt.Fprintf(stderr, "plumb: --min-statements value %v is out of range, want 0 to 100\n", *cf.minStmts)
 		fs.Usage()
 		return newExitError(2, "threshold out of range")
 	}
-	if given["min-functions"] && !validThreshold(*minFuncs) {
-		fmt.Fprintf(stderr, "plumb: --min-functions value %v is out of range, want 0 to 100\n", *minFuncs)
+	if given["min-functions"] && !validThreshold(*cf.minFuncs) {
+		fmt.Fprintf(stderr, "plumb: --min-functions value %v is out of range, want 0 to 100\n", *cf.minFuncs)
 		fs.Usage()
 		return newExitError(2, "threshold out of range")
 	}
-	if given["min-diff"] && !validThreshold(*minDiff) {
-		fmt.Fprintf(stderr, "plumb: --min-diff value %v is out of range, want 0 to 100\n", *minDiff)
+	if given["min-diff"] && !validThreshold(*cf.minDiff) {
+		fmt.Fprintf(stderr, "plumb: --min-diff value %v is out of range, want 0 to 100\n", *cf.minDiff)
 		fs.Usage()
 		return newExitError(2, "threshold out of range")
 	}
@@ -121,21 +131,24 @@ Examples:
 		return fmt.Errorf("%s measures no coverable statement", profilePath)
 	}
 
-	var failures, successParts []string
+	var rep checkReport
 
 	if given["min-statements"] {
 		pct := float64(stmtCovered) / float64(stmtTotal) * 100
-		got, want := truncPct(pct), truncPct(*minStmts)
 
 		// Compare the raw percentage against the raw flag value,
 		// never the truncated print value: a value equal to the
 		// threshold passes, and a value one step below it fails
 		// (CHK-01 boundary).
-		if pct < *minStmts {
-			failures = append(failures, fmt.Sprintf("plumb: statement coverage %.1f%%, need %.1f%% (--min-statements)", got, want))
-		} else {
-			successParts = append(successParts, fmt.Sprintf("%.1f%% stmts", got))
-		}
+		rep.metrics = append(rep.metrics, metric{
+			noun:  "statement",
+			short: "stmts",
+			title: "Statements",
+			flag:  "--min-statements",
+			got:   truncPct(pct),
+			want:  truncPct(*cf.minStmts),
+			pass:  pct >= *cf.minStmts,
+		})
 	}
 
 	if given["min-functions"] {
@@ -153,13 +166,16 @@ Examples:
 		if funcTotal > 0 {
 			pct = float64(funcCovered) / float64(funcTotal) * 100
 		}
-		got, want := truncPct(pct), truncPct(*minFuncs)
 
-		if pct < *minFuncs {
-			failures = append(failures, fmt.Sprintf("plumb: function coverage %.1f%%, need %.1f%% (--min-functions)", got, want))
-		} else {
-			successParts = append(successParts, fmt.Sprintf("%.1f%% funcs", got))
-		}
+		rep.metrics = append(rep.metrics, metric{
+			noun:  "function",
+			short: "funcs",
+			title: "Functions",
+			flag:  "--min-functions",
+			got:   truncPct(pct),
+			want:  truncPct(*cf.minFuncs),
+			pass:  pct >= *cf.minFuncs,
+		})
 	}
 
 	// --diff-base alone also turns diff mode on (D-40), so either flag
@@ -171,37 +187,59 @@ Examples:
 			return err
 		}
 
-		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *diffBase, profilePath)
+		dr, err := diffCoverage(profiles, modulePath, moduleRoot, *cf.diffBase, profilePath)
 		if err != nil {
 			return mapDiffCoverageError(err, stderr)
 		}
 
-		fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
+		rep.diffBase = dr.Base
+		rep.diffMergeBase = dr.MergeBase
+		rep.skipped = dr.Skipped
+
+		// In text mode the reference prints as it is measured. Markdown
+		// mode carries the same fact inside the document instead, so
+		// nothing but the document itself reaches stdout.
+		if !markdown {
+			fmt.Fprintf(stdout, "plumb: diff against %s (merge base %s)\n", dr.Base, shortSHA(dr.MergeBase))
+		}
 
 		// The reason a file left the ratio is visible whether or not
 		// the gate passes, and it prints before the pass/fail lines
-		// below (D-18, D-38).
+		// below (D-18, D-38). stderr carries it in both formats: a
+		// build log must name a dropped file even when the comment
+		// that quotes the number goes somewhere else.
 		for _, s := range dr.Skipped {
 			fmt.Fprintf(stderr, "plumb: %s: %s\n", s.Name, s.Reason)
 		}
 
 		if pct, ok := dr.Pct(); ok {
-			got, want := truncPct(pct), truncPct(*minDiff)
-			successParts = append(successParts, fmt.Sprintf("%.1f%% diff", got))
-			if pct < *minDiff {
-				failures = append(failures, fmt.Sprintf("plumb: diff coverage %.1f%%, need %.1f%% (--min-diff)", got, want))
-			}
+			rep.metrics = append(rep.metrics, metric{
+				noun:  "diff",
+				short: "diff",
+				title: "Diff",
+				flag:  "--min-diff",
+				got:   truncPct(pct),
+				want:  truncPct(*cf.minDiff),
+				pass:  pct >= *cf.minDiff,
+			})
 		} else {
 			// D-37: a diff with nothing coverable to measure is not a
 			// 0% diff, so every threshold passes.
-			successParts = append(successParts, report.NoCoverableLinesChanged)
+			rep.noCoverableDiff = true
 		}
+	}
+
+	// Markdown describes the pass and the fail alike, so it writes the
+	// same document either way and only the exit code differs. Write it
+	// before the failure branch below returns.
+	if markdown {
+		fmt.Fprint(stdout, rep.markdown())
 	}
 
 	// Collect failures rather than return on the first one: two
 	// failed thresholds give two stderr lines, statements first, and
 	// one exit code (D-24).
-	if len(failures) > 0 {
+	if failures := rep.failures(); len(failures) > 0 {
 		for _, f := range failures {
 			fmt.Fprintln(stderr, f)
 		}
@@ -210,17 +248,32 @@ Examples:
 
 	// Build the success line from the metrics the caller asked for,
 	// and from those only.
-	fmt.Fprintf(stdout, "plumb: coverage ok (%s)\n", strings.Join(successParts, ", "))
+	if !markdown {
+		fmt.Fprint(stdout, rep.successLine())
+	}
 	return nil
 }
 
+// checkFlags holds the flag values check reads. It is a struct rather
+// than a list of returns because the count passed the point where a
+// caller can keep the order straight.
+type checkFlags struct {
+	minStmts *float64
+	minFuncs *float64
+	minDiff  *float64
+	diffBase *string
+	format   *string
+}
+
 // addCheckFlags registers the threshold flags check reads.
-func addCheckFlags(fs *flag.FlagSet) (minStmts, minFuncs, minDiff *float64, diffBase *string) {
-	minStmts = fs.Float64("min-statements", 0, "minimum statement coverage percent")
-	minFuncs = fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)")
-	minDiff = fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)")
-	diffBase = addDiffBaseFlag(fs)
-	return minStmts, minFuncs, minDiff, diffBase
+func addCheckFlags(fs *flag.FlagSet) checkFlags {
+	return checkFlags{
+		minStmts: fs.Float64("min-statements", 0, "minimum statement coverage percent"),
+		minFuncs: fs.Float64("min-functions", 0, "minimum function coverage percent (reads the source tree)"),
+		minDiff:  fs.Float64("min-diff", 0, "minimum diff coverage percent (lines changed since --diff-base)"),
+		diffBase: addDiffBaseFlag(fs),
+		format:   fs.String("format", formatText, "output format: text or markdown"),
+	}
 }
 
 // shortSHA returns the first 7 characters of a git commit SHA, or the
